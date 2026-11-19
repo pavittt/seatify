@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seatify</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="css/styles.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+</head>
+<body>
+<div id="app">
+
+  <!-- HOME -->
+  <section class="screen" id="screen-home">
+    <header class="home-head">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Seatify</div>
+      <h1>See the stage from your seat <em>before</em> you pay.</h1>
+      <p class="lede">Concert seat maps for India's big venues, with a 3D preview from any seat or standing spot.</p>
+    </header>
+    <div class="tabs" role="tablist">
+      <button class="tab on" type="button" role="tab" data-tab="shows" aria-selected="true">Shows</button>
+      <button class="tab" type="button" role="tab" data-tab="venues" aria-selected="false">Venues</button>
+    </div>
+    <div class="chips" id="city-chips" aria-label="Filter by city"></div>
+    <div class="list" id="home-list"></div>
+    <p class="fine home-foot">Artists and shows are made up for the demo. Venue layouts are approximate.</p>
+  </section>
+
+  <!-- MAP -->
+  <section class="screen" id="screen-map" hidden>
+    <header class="topbar">
+      <button class="icon-btn" type="button" id="map-back" aria-label="Back">←</button>
+      <div class="topbar-text"><h2 id="map-title"></h2><div class="meta" id="map-sub"></div></div>
+      <button class="icon-btn" type="button" id="map-reset" aria-label="Reset map zoom">⤢</button>
+    </header>
+    <div class="segs" id="layout-switch" aria-label="Stage layout"></div>
+    <div class="pchips" id="price-chips" aria-label="Filter by price"></div>
+    <div class="map-wrap">
+      <div id="map"></div>
+      <ul class="legend" aria-label="Map legend">
+        <li><i class="lg open"></i>Available</li>
+        <li><i class="lg few"></i>Few left</li>
+        <li><i class="lg sold"></i>Sold out</li>
+        <li><i class="lg closed"></i>No view</li>
+      </ul>
+    </div>
+    <p class="accuracy" id="accuracy"></p>
+    <div class="sheet" id="sheet" hidden></div>
+    <div class="select-bar" id="select-bar" hidden>
+      <div><div class="sel-label" id="select-label"></div><div class="sel-price" id="select-price"></div></div>
+      <div class="sel-actions">
+        <button class="ghost" type="button" id="select-buy">Buy</button>
+        <button class="primary" type="button" id="select-view">View from seat</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW -->
+  <section class="screen" id="screen-view" hidden>
+    <canvas id="view-canvas" aria-label="3D view of the stage from your seat. Drag to look around."></canvas>
+    <div class="view-loading" id="view-loading">Filling the venue…</div>
+    <div class="view-top">
+      <button class="icon-btn glass" type="button" id="view-back" aria-label="Back to the seat map">←</button>
+      <div class="pill" id="view-pill"></div>
+    </div>
+    <div class="segs floating" id="spot-tabs" hidden></div>
+    <div class="view-tools">
+      <button class="icon-btn glass" type="button" id="zoom-in" aria-label="Zoom in">+</button>
+      <button class="icon-btn glass" type="button" id="zoom-out" aria-label="Zoom out">−</button>
+      <button class="icon-btn glass" type="button" id="recentre" aria-label="Look at the stage">◎</button>
+    </div>
+    <div class="view-sheet" id="view-sheet">
+      <button class="grab" type="button" id="sheet-toggle" aria-expanded="true" aria-label="Show or hide seat details"></button>
+      <div class="vs-body">
+        <div class="vs-grid">
+          <div class="minimap-wrap" id="view-minimap"></div>
+          <div class="stats" id="view-stats"></div>
+        </div>
+        <p class="tv" id="view-tv"></p>
+        <ul class="warns" id="view-warn"></ul>
+        <div class="vs-actions">
+          <button class="ghost" type="button" id="view-change">Change seat</button>
+          <button class="primary" type="button" id="view-buy">Buy</button>
+        </div>
+        <div class="vs-foot"><p class="fine"><span id="view-crowd"></span> · Drag to look around, pinch or scroll to zoom.</p><label class="toy"><input type="checkbox" id="toy-heads"> Toy heads</label></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="dlg" id="checkout" hidden></div>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
