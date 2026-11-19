@@ -2,6 +2,8 @@
 
 Concert ticketing for India's big venues, with a 3D **view from your seat** before you pay.
 
+Live site: https://pavittt.github.io/seatify/
+
 Pick a show or a venue, choose a price band on the seat map, tap a section and a seat (or a standing zone), and the camera flies into a 3D view of the stage from that exact spot. The scene is filled with chunky toy-block fans who bounce and hold up phone lights. A bottom sheet shows a mini-map, the distance to the stage, viewing angle, how far off-centre you are, how big the main screen looks, and warnings when something blocks the view.
 
 ## What's in it
