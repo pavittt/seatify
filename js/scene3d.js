@@ -30,7 +30,7 @@ function sePoint(a, b, n, t) {
 }
 
 export class SeatView {
-  constructor(canvas) {
+  constructor(canvas, { interactive = true, background = '#07080f' } = {}) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -45,7 +45,8 @@ export class SeatView {
     this.yaw = 0; this.pitch = 0; this.fov = 58;
     this.running = false;
     this.toyHeads = false;
-    this._bindControls();
+    if (interactive) this._bindControls();
+    this.scene.background = new THREE.Color(background); this.scene.fog.color.set(background);
     new ResizeObserver(() => this.resize()).observe(canvas);
   }
 
@@ -424,11 +425,11 @@ export class SeatView {
     return mat;
   }
 
-  buildCrowd(focus) {
+  buildCrowd(focus, opts = {}) {
     const model = this.model;
     if (this.crowd) { this.root.remove(this.crowd); this.crowd.traverse((o) => o.dispose?.()); }
     const coarse = matchMedia('(pointer: coarse)').matches;
-    const cap = coarse ? 16000 : 38000;
+    const cap = opts.cap || (coarse ? 16000 : 38000);
     const spots = [];
     const st = model.stage;
     const target = st.type === 'center' ? [st.x, st.z] : [0, st.zBack + st.d];
@@ -536,6 +537,7 @@ export class SeatView {
     const b = this.model.bounds;
     const startPos = new THREE.Vector3(eye.x * 0.4, Math.max(90, (b.z1 - b.z0) * 0.55), eye.z * 0.4 + (b.z1 - b.z0) * 0.35);
     const startQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(startPos, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0)));
+    this.path = { startPos, startQ };
     if (instant || matchMedia('(prefers-reduced-motion: reduce)').matches) { this.fly = null; return; }
     this.fly = { t0: this.clock.getElapsedTime(), dur: 1.9, startPos, startQ };
   }
@@ -582,6 +584,8 @@ export class SeatView {
     c.addEventListener('wheel', (e) => { e.preventDefault(); this.fov = Math.max(14, Math.min(75, this.fov * Math.exp(e.deltaY * 0.001))); }, { passive: false });
   }
 
+  scrub(p) { this.scrubP = p; this.fly = null; }
+
   zoom(f) { this.fov = Math.max(14, Math.min(75, this.fov * f)); }
   recentre() { this.yaw = 0; this.pitch = this._restPitch(); this.fov = 58; }
   // on tall phone screens the sheet covers the bottom half, so tilt down a little to keep the stage and crowd in view
@@ -598,7 +602,12 @@ export class SeatView {
     const cam = this.camera;
     const look = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
     const finalQ = this.baseQ.clone().multiply(look);
-    if (this.fly) {
+    if (this.scrubP != null && this.path) {
+      // scroll-driven camera: 0 = high overview, 1 = in the seat
+      const k = Math.max(0, Math.min(1, this.scrubP)); const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+      const mid = this.path.startPos.clone().lerp(this.eye, e); mid.y += Math.sin(e * Math.PI) * 10;
+      cam.position.copy(mid); cam.quaternion.copy(this.path.startQ).slerp(finalQ, e);
+    } else if (this.fly) {
       const k = Math.min(1, (t - this.fly.t0) / this.fly.dur); const e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
       const mid = this.fly.startPos.clone().lerp(this.eye, e);
       mid.y += Math.sin(e * Math.PI) * 8;

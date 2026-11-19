@@ -14,6 +14,24 @@ Pick a show or a venue, choose a price band on the seat map, tap a section and a
 - **Checkout mock** with quantity, fees and a ticket. No payment is taken.
 - A **toy heads** switch turns everyone's heads toy yellow.
 
+## The homepage
+
+The homepage is a scroll story rather than a list of cards:
+
+1. **Hero** with a Vanta.js fog backdrop in stage colours, split-letter headline and a wordmark whose width animates in (Archivo's variable `wdth` axis).
+2. **Fly-in**: the section pins and your scroll drives the real three.js scene, dropping the camera out of the sky into Sec 115, Row K, with a camera-viewfinder HUD and three steps (pick a seat, fly in, know before).
+3. **Marquee** of cities and venues whose speed follows your scroll velocity.
+4. **Shows** scroll sideways while the section is pinned (desktop) or swipe (phone), with tilt-on-hover cards and parallax images.
+5. **Manifesto** that lights up word by word, a **seat comparison** table, and a **venue index** with a cursor-following preview image.
+
+Booking screens open as full-screen layers over the homepage with a wipe transition, and Escape steps back.
+
+**Libraries:** GSAP 3.12.5 + ScrollTrigger (cdnjs), Locomotive Scroll 5 beta, which runs on Lenis for smooth scrolling (jsDelivr), Vanta.js 0.5.24 FOG (jsDelivr), three.js 0.160.0. The React Bits patterns used (SplitText, ScrollReveal, ScrollVelocity, Magnet, TiltedCard, Counter) are re-written in plain JS in `js/home.js`, so there is still no build step. Everything respects `prefers-reduced-motion`.
+
+**Type:** Archivo (variable width) for display, Instrument Serif italic for accent words, Geist and Geist Mono for body and data.
+
+**Images:** the venue images in `assets/venues/` are 1600×1000 renders from Seatify's own 3D scene, so there are no licensing issues. Swap in licensed photos with the same file names if you want real venue shots.
+
 ## Run it
 
 It is a static site with no build step. Serve the folder with any static server:
@@ -36,7 +54,8 @@ three.js (0.160.0) loads from jsDelivr through an import map, and fonts load fro
 | `js/model.js` | Turns a venue and layout into sections, seats, standing zones, stage and obstacles; viewing stats and warnings |
 | `js/map.js` | The top-down SVG seat map (pan, pinch, zoom, price filter) and the mini-map |
 | `js/scene3d.js` | The three.js scene: stepped stands, stage and screens, light beams, instanced blocky crowd, camera fly-in, line-of-sight rays |
-| `js/app.js` | Screens and booking flow |
+| `js/app.js` | Booking flow layers (seat map, seat view, checkout) |
+| `js/home.js` | Homepage: preloader, smooth scroll, fly-in, marquee, shows, venue index, cursor |
 
 ### Adding a venue
 

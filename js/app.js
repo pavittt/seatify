@@ -16,61 +16,18 @@ function getModel(venue, layout) {
 }
 
 // ---------------- screens ----------------
+// The home page stays underneath; the map and seat view open as full-screen layers.
+let current = 'screen-home';
 function show(id) {
-  for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== id;
+  const was = current; current = id;
+  for (const s of document.querySelectorAll('.layer')) {
+    const on = s.id === id;
+    if (on && s.hidden) { s.hidden = false; s.classList.remove('leaving'); s.classList.add('entering'); requestAnimationFrame(() => requestAnimationFrame(() => s.classList.remove('entering'))); }
+    else if (!on && !s.hidden) { s.classList.add('leaving'); setTimeout(() => { if (current !== s.id) { s.hidden = true; s.classList.remove('leaving'); } }, 420); }
+  }
+  document.documentElement.classList.toggle('layer-open', id !== 'screen-home');
+  if (was !== id) window.dispatchEvent(new CustomEvent('seatify:layer', { detail: { open: id !== 'screen-home', id } }));
   if (id === 'screen-view') view.start(); else view.stop();
-}
-
-// ---------------- home ----------------
-function cityOf(v) { return v.city.split(' (')[0]; }
-function renderHome() {
-  const cities = ['All', ...new Set(VENUES.map(cityOf))];
-  const chips = $('#city-chips'); chips.innerHTML = '';
-  for (const c of cities) {
-    const b = h('button', 'chip' + (state.city === c ? ' on' : ''), esc(c));
-    b.type = 'button'; b.setAttribute('aria-pressed', state.city === c);
-    b.onclick = () => { state.city = c; renderHome(); };
-    chips.appendChild(b);
-  }
-  for (const t of document.querySelectorAll('.tab')) { const on = t.dataset.tab === state.tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); }
-  const list = $('#home-list'); list.innerHTML = '';
-  if (state.tab === 'shows') {
-    const items = SHOWS.filter((s) => state.city === 'All' || cityOf(VENUES.find((v) => v.id === s.venue)) === state.city);
-    if (!items.length) list.appendChild(h('p', 'empty', 'No sample shows in this city yet. Open the Venues tab to explore its layout.'));
-    for (const s of items) {
-      const v = VENUES.find((x) => x.id === s.venue);
-      const card = h('button', 'card show-card');
-      card.type = 'button';
-      const from = Math.min(...Object.keys(CATS).map((c) => priceOf(v, c)));
-      card.innerHTML = `
-        <div class="poster" style="--h:${(s.id.length * 47 + s.title.length * 13) % 360}"><span>${esc(s.artist.split(' ')[0])}</span></div>
-        <div class="card-body">
-          <div class="eyebrow">${esc(s.date)} · ${esc(s.time)}</div>
-          <h3>${esc(s.title)}</h3>
-          <div class="meta">${esc(s.artist)}</div>
-          <div class="meta">${esc(v.name)}, ${esc(v.city)}</div>
-          <div class="row-tags"><span class="tag">${esc(LAYOUTS[s.layout].label)}</span><span class="tag price">from ${fmtINR(from)}</span></div>
-        </div>`;
-      card.onclick = () => openMap({ show: s, venue: v, layout: s.layout });
-      list.appendChild(card);
-    }
-  } else {
-    const items = VENUES.filter((v) => state.city === 'All' || cityOf(v) === state.city);
-    for (const v of items) {
-      const card = h('button', 'card venue-card'); card.type = 'button';
-      card.innerHTML = `
-        <div class="venue-icon kind-${v.kind}" aria-hidden="true"></div>
-        <div class="card-body">
-          <div class="eyebrow">${esc(v.city)} · ${v.kind === 'ground' ? 'Open ground' : v.kind === 'arena' ? 'Indoor arena' : 'Stadium'}</div>
-          <h3>${esc(v.name)}</h3>
-          <div class="meta">${esc(v.capacity)}</div>
-          <p class="note">${esc(v.notes)}</p>
-          <div class="row-tags"><span class="tag approx">Approximate layout</span></div>
-        </div>`;
-      card.onclick = () => openMap({ show: null, venue: v, layout: 'end' });
-      list.appendChild(card);
-    }
-  }
 }
 
 // ---------------- map ----------------
@@ -310,8 +267,8 @@ function renderTicket(total) {
 }
 
 // ---------------- wiring ----------------
-for (const t of document.querySelectorAll('.tab')) t.onclick = () => { state.tab = t.dataset.tab; renderHome(); };
 $('#map-back').onclick = () => show('screen-home');
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#checkout').hidden) { if (current === 'screen-view') show('screen-map'); else if (current === 'screen-map') show('screen-home'); } });
 $('#map-reset').onclick = () => seatMap.resetView();
 $('#select-view').onclick = openView;
 $('#view-back').onclick = () => show('screen-map');
@@ -325,15 +282,15 @@ $('#toy-heads').onchange = (e) => view.setToyHeads(e.target.checked);
 $('#sheet-toggle').onclick = () => { const vs = $('#view-sheet'); const c = vs.classList.toggle('collapsed'); $('#sheet-toggle').setAttribute('aria-expanded', !c); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#checkout').hidden) $('#checkout').hidden = true; });
 
-renderHome();
-show('screen-home');
 
-// deep link for quick demos: #demo opens the first show at a good seat
-if (location.hash === '#demo') {
+// The demo jumps straight into a good seat for the first show.
+function openDemo() {
   const s = SHOWS[0]; openMap({ show: s, venue: VENUES.find((v) => v.id === s.venue), layout: s.layout });
   const sec = state.model.sections.filter((x) => x.tierIdx === 0 && !x.closed && x.availability === 'open').sort((a, b) => Math.abs(a.phi - 62) - Math.abs(b.phi - 62))[0];
   pickItem(sec); const r = sec.getRows()[10]; const seat = r.seats.find((x) => !x.sold) || r.seats[0];
   state.pick = { type: 'seat', section: sec, row: r, seat, cat: sec.cat, point: { x: seat.x, y: seat.y, z: seat.z } };
   renderSelection(); openView();
 }
+if (location.hash === '#demo') openDemo();
 window.__seatify = { state, view, openView, pickItem, getModel, VENUES };
+export { openMap, getModel, show, openDemo };
