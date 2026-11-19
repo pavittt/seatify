@@ -171,6 +171,10 @@ function openView() {
   const m = state.model;
   view.showTitle = state.show ? state.show.artist : state.venue.name;
   show('screen-view');
+  // On phones and short windows start with the compact sheet so the 3D view stays visible.
+  const compact = innerWidth < 900 || innerHeight < 820;
+  $('#view-sheet').classList.toggle('collapsed', compact);
+  $('#sheet-toggle').setAttribute('aria-expanded', String(!compact));
   $('#view-loading').hidden = false;
   requestAnimationFrame(() => setTimeout(() => {
     view.load(m);

@@ -330,9 +330,17 @@ html.layer-open .v-preview { display: none; }
 .segs.floating { position: absolute; top: calc(66px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); width: min(320px, calc(100% - 32px)); background: var(--glass); backdrop-filter: blur(10px); z-index: 2; margin: 0; }
 .view-tools { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: 38%; display: grid; gap: 8px; z-index: 2; }
 .view-sheet { position: absolute; left: 0; right: 0; bottom: 0; margin: 0 auto; max-width: 600px; background: rgba(14,13,18,.94); backdrop-filter: blur(16px); border: 1px solid var(--line); border-bottom: 0; border-radius: 20px 20px 0 0; padding: 6px var(--gutter-r) calc(14px + env(safe-area-inset-bottom, 0px)) var(--gutter); z-index: 2; }
-.view-sheet.collapsed .vs-body > :not(.vs-actions) { display: none; }
-.grab { display: block; width: 60px; height: 18px; margin: 0 auto 4px; border: 0; background: none; position: relative; }
-.grab::before { content: ""; position: absolute; left: 12px; right: 12px; top: 7px; height: 3px; border-radius: 3px; background: var(--line-2); }
+.view-sheet.collapsed .vs-body > :not(.vs-actions):not(.vs-grid) { display: none; }
+.view-sheet.collapsed .minimap-wrap { display: none; }
+.view-sheet.collapsed .vs-grid { grid-template-columns: 1fr; }
+.view-sheet.collapsed .stats { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.view-sheet.collapsed .stat b { font-size: 15px; }
+.view-sheet.collapsed .stat span { font-size: 9px; }
+.view-sheet.collapsed .vs-actions { margin-top: 10px; }
+.view-sheet.collapsed .vs-actions button { padding-block: 10px; }
+.view-sheet { max-height: 62svh; overflow-y: auto; }
+.grab { display: block; width: 100%; height: 22px; margin: 0 auto 4px; border: 0; background: none; position: relative; }
+.grab::before { content: ""; position: absolute; left: calc(50% - 22px); width: 44px; top: 8px; height: 3px; border-radius: 3px; background: var(--line-2); }
 .vs-grid { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; }
 .minimap-wrap { aspect-ratio: 1; max-width: 100%; background: var(--ink); border-radius: 10px; border: 1px solid var(--line); padding: 4px; }
 .minimap { width: 100%; height: 100%; display: block; }
