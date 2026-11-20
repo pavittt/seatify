@@ -1,10 +1,15 @@
 // The 3D "view from your seat": stepped stands, stage, lights and a crowd of
 // chunky toy-block people rendered with instancing.
 import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CATS } from './data/venues.js';
 import { ROW_D, EYE, hash01 } from './model.js';
 
-const SHIRTS = ['#ff5c8a', '#ffb54a', '#3fe0a5', '#55c8ff', '#8b95ff', '#f3f0e8', '#1d1f2b', '#e5484d', '#ffd23f', '#2ec4b6', '#9b5de5', '#f15bb5', '#00bbf9', '#fee440', '#222222', '#fafafa'];
+// Gig crowds dress dark: mostly black and band tees, a few whites and colours.
+const SHIRTS = ['#111114', '#141418', '#1a1a20', '#0e0f13', '#22252e', '#2b2f3a', '#1d2433', '#f1ede4', '#e9e4da', '#7d1f2a', '#2e4a7d', '#3b5e3f', '#c9a227', '#5e3a7a', '#a83a5a', '#1e1e1e'];
 const PANTS = ['#26304a', '#1b1b22', '#3a4a6b', '#5b4636', '#2f3e2f', '#44445a'];
 const SKIN = ['#8d5524', '#a0662f', '#c68642', '#b87a4b', '#e0ac69', '#7a4a26', '#d29a6a'];
 const TOY = ['#ffcf3a'];
@@ -35,10 +40,18 @@ export class SeatView {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#07080f');
     this.scene.fog = new THREE.Fog('#07080f', 160, 520);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1500);
+    // bloom makes LED walls, lenses and beams glow like they do through haze
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.62);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
     this.clock = new THREE.Clock();
     this.uTime = { value: 0 };
     this.anim = [];
@@ -54,7 +67,11 @@ export class SeatView {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
+    const pr = this.renderer.getPixelRatio();
+    this.composer.setPixelRatio(pr); this.composer.setSize(w, h);
+    this.bloom.resolution.set((w * pr) / 2, (h * pr) / 2);
     this.camera.aspect = w / h;
+    if (this.eye) this._frameStage();
     this.camera.updateProjectionMatrix();
   }
 
@@ -69,8 +86,11 @@ export class SeatView {
     this.targets = [];
     this.anim = [];
 
-    this.root.add(new THREE.HemisphereLight('#9fb0ff', '#2a1a30', 0.95));
-    const moon = new THREE.DirectionalLight('#c9d4ff', 0.55); moon.position.set(-80, 160, 120); this.root.add(moon);
+    this.root.add(new THREE.HemisphereLight('#7f8fc7', '#1a1420', 0.7));
+    const moon = new THREE.DirectionalLight('#b9c6ff', 0.45); moon.position.set(-80, 160, 120); this.root.add(moon);
+    // light spilling off the stage onto the crowd's faces
+    const spill = new THREE.DirectionalLight('#ffb38a', 0.55); spill.position.set(0, 30, model.stage.type === 'center' ? 0 : model.stage.zBack); spill.target.position.set(0, 0, 60); this.root.add(spill, spill.target);
+    this.anim.push((t) => spill.color.setHSL((0.03 + t * 0.02) % 1, 0.6, 0.65));
     const stageGlow = new THREE.PointLight('#ff7ad9', 2.2, 260, 1.2);
     const st = model.stage;
     stageGlow.position.set(0, 20, st.type === 'center' ? st.z : st.zFront + 8);
@@ -105,11 +125,11 @@ export class SeatView {
     if (model.field.type === 'bowl') {
       const { a, b, n } = model.field; const shape = new THREE.Shape();
       for (let i = 0; i <= 96; i++) { const [x, z] = sePoint(a, b, n, (i / 96) * Math.PI * 2); i ? shape.lineTo(x, -z) : shape.moveTo(x, -z); }
-      const f = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: v.kind === 'arena' ? '#1d1e26' : '#1f3a24' }));
+      const f = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: v.kind === 'arena' ? '#1a1a1d' : '#17201a' }));
       f.rotation.x = -Math.PI / 2; f.position.y = 0; this.root.add(f);
     } else {
       const { w, d } = model.field;
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: v.scenery === 'palms' ? '#4a3d26' : '#26402a' }));
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: v.scenery === 'palms' ? '#2e271c' : '#18201a' }));
       f.rotation.x = -Math.PI / 2; this.root.add(f);
       // perimeter fence
       const fenceMat = new THREE.MeshLambertMaterial({ color: '#2b2f3d' });
@@ -120,11 +140,11 @@ export class SeatView {
     }
     // floor deck and standing zones
     const fl = model.floor;
-    const deck = new THREE.Mesh(new THREE.PlaneGeometry(fl.x1 - fl.x0, fl.z1 - fl.z0), new THREE.MeshLambertMaterial({ color: '#20222c' }));
+    const deck = new THREE.Mesh(new THREE.PlaneGeometry(fl.x1 - fl.x0, fl.z1 - fl.z0), new THREE.MeshLambertMaterial({ color: '#141416' }));
     deck.rotation.x = -Math.PI / 2; deck.position.set((fl.x0 + fl.x1) / 2, 0.02, (fl.z0 + fl.z1) / 2); this.root.add(deck);
     const barrierMat = new THREE.MeshLambertMaterial({ color: '#9aa3b8' });
     for (const z of model.zones) {
-      const mat = new THREE.MeshBasicMaterial({ color: CATS[z.cat].color, transparent: true, opacity: 0.12, depthWrite: false });
+      const mat = new THREE.MeshBasicMaterial({ color: CATS[z.cat].color, transparent: true, opacity: 0.035, depthWrite: false });
       if (z.ring) {
         const m = new THREE.Mesh(new THREE.RingGeometry(z.ring.r0, z.ring.r1, 48), mat);
         m.rotation.x = -Math.PI / 2; m.position.set(z.ring.x, 0.04, z.ring.z); this.root.add(m);
@@ -172,12 +192,12 @@ export class SeatView {
     const ribbonPos = [];
     for (const s of model.sections) {
       if (s.kind !== 'arc') continue;
-      const base = new THREE.Color(s.closed ? '#22242e' : CATS[s.cat].color);
+      const base = new THREE.Color(s.closed ? '#22242e' : '#3a3f4f').lerp(new THREE.Color(CATS[s.cat].color), s.closed ? 0 : 0.18);
       const M = 10;
       for (let r = 0; r < s.rowsCount; r++) {
         const dIn = s.d0 + r * ROW_D - ROW_D / 2, dOut = dIn + ROW_D;
         const y = s.base + r * s.rake, yNext = y + s.rake;
-        c.copy(base).multiplyScalar(s.closed ? 1 : (r % 2 ? 0.26 : 0.32));
+        c.copy(base).multiplyScalar(s.closed ? 1 : (r % 2 ? 0.55 : 0.68));
         const riser = c.clone().multiplyScalar(0.6);
         for (let i = 0; i < M; i++) {
           const ta = s.t0 + ((s.t1 - s.t0) * i) / M, tb = s.t0 + ((s.t1 - s.t0) * (i + 1)) / M;
@@ -214,13 +234,13 @@ export class SeatView {
     for (const [A, B, y, closed] of ribbonPos) {
       const h = 0.45;
       rp.push(A[0], y - h, A[1], B[0], y - h, B[1], B[0], y + h, B[1], A[0], y - h, A[1], B[0], y + h, B[1], A[0], y + h, A[1]);
-      const cc = closed ? [0.05, 0.05, 0.08] : [0.95, 0.35, 0.75];
+      const cc = closed ? [0.05, 0.05, 0.08] : [0.75, 0.75, 0.75];
       for (let i = 0; i < 6; i++) rc.push(...cc);
     }
     const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); rg.setAttribute('color', new THREE.Float32BufferAttribute(rc, 3));
-    const ribbonMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    const ribbonMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false });
     this.root.add(new THREE.Mesh(rg, ribbonMat));
-    this.anim.push((t) => ribbonMat.color.setHSL((t * 0.08) % 1, 0.7, 0.65));
+    this.anim.push((t) => ribbonMat.color.setHSL((t * 0.08) % 1, 0.8, 0.5));
 
     const last = model.tierInfo[model.tierInfo.length - 1];
     const v = model.venue;
@@ -258,10 +278,10 @@ export class SeatView {
       if (s.kind !== 'line') continue;
       const [fx, fz] = s.stand.f, [rx, rz] = s.right, o = s.stand.origin;
       const at = (lat, back, y) => [o[0] + rx * lat - fx * back, y, o[1] + rz * lat - fz * back];
-      const base = new THREE.Color(CATS[s.cat].color);
+      const base = new THREE.Color('#3a3f4f').lerp(new THREE.Color(CATS[s.cat].color), 0.18);
       for (let r = 0; r < s.rowsCount; r++) {
         const b0 = r * ROW_D - ROW_D / 2, b1 = b0 + ROW_D, y = s.base + r * s.rake;
-        const c = base.clone().multiplyScalar(r % 2 ? 0.26 : 0.33);
+        const c = base.clone().multiplyScalar(r % 2 ? 0.55 : 0.68);
         quad(at(s.s0, b0, y), at(s.s1, b0, y), at(s.s1, b1, y), at(s.s0, b1, y), c);
         quad(at(s.s0, b1, y), at(s.s1, b1, y), at(s.s1, b1, y + s.rake), at(s.s0, b1, y + s.rake), c.clone().multiplyScalar(0.6));
         if (r === 0) quad(at(s.s0, b0, 0), at(s.s1, b0, 0), at(s.s1, b0, y), at(s.s0, b0, y), new THREE.Color('#15161d'));
@@ -278,102 +298,313 @@ export class SeatView {
     this.root.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })));
   }
 
+  // LED wall content: drawn small and scaled up with nearest filtering, then a dark
+  // pixel grid on top, so up close it reads as an LED panel rather than a flat picture.
   _screenTexture(w, h, kind) {
-    const cv = document.createElement('canvas'); cv.width = 512; cv.height = Math.round((512 * h) / w);
+    const PX = kind === 'main' ? 192 : 72;
+    const cv = document.createElement('canvas'); cv.width = PX * 2; cv.height = Math.max(8, Math.round((PX * h) / w)) * 2;
     const ctx = cv.getContext('2d'); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
-    const title = this.showTitle || 'LIVE';
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = 4;
+    const title = (this.showTitle || 'LIVE').toUpperCase();
     const draw = (t) => {
       const W = cv.width, H = cv.height;
-      const g = ctx.createLinearGradient(0, 0, W, H);
-      const h1 = (t * 18) % 360, h2 = (h1 + 80) % 360;
-      g.addColorStop(0, `hsl(${h1} 90% 55%)`); g.addColorStop(1, `hsl(${h2} 85% 35%)`);
-      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-      ctx.globalAlpha = 0.35; ctx.fillStyle = '#000';
-      for (let i = 0; i < 12; i++) { const x = ((i * 53 + t * 60) % (W + 80)) - 40; ctx.fillRect(x, 0, 14, H); }
-      ctx.globalAlpha = 1;
-      if (kind === 'main') {
-        // a blocky performer silhouette
-        const cx = W / 2 + Math.sin(t * 1.3) * W * 0.06, by = H * 0.95, s = H / 6;
-        ctx.fillStyle = 'rgba(10,8,20,0.85)';
-        ctx.fillRect(cx - s * 0.5, by - s * 2.2, s, s * 1.4);
-        ctx.fillRect(cx - s * 0.32, by - s * 3.05, s * 0.64, s * 0.75);
-        ctx.fillRect(cx - s * 0.95, by - s * 2.2 - Math.abs(Math.sin(t * 3)) * s * 0.6, s * 0.38, s * 1.1);
-        ctx.fillRect(cx + s * 0.57, by - s * 2.2, s * 0.38, s * 1.1);
-        ctx.fillRect(cx - s * 0.45, by - s * 0.8, s * 0.38, s * 0.8); ctx.fillRect(cx + s * 0.07, by - s * 0.8, s * 0.38, s * 0.8);
-        ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(H * 0.11)}px system-ui, sans-serif`; ctx.textAlign = 'left';
-        ctx.fillText(title.toUpperCase(), W * 0.04, H * 0.16);
+      const hue = (t * 14) % 360;
+      if (kind === 'side' || kind === 'cam') {
+        // IMAG camera feed: a close-up of the singer, warm key light, dark background
+        const g = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, H * 0.8);
+        g.addColorStop(0, `hsl(${hue} 70% 32%)`); g.addColorStop(1, '#05040a');
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+        const sway = Math.sin(t * 1.4) * W * 0.04, cx = W / 2 + sway;
+        ctx.fillStyle = '#0d0a10';
+        ctx.beginPath(); ctx.ellipse(cx, H * 1.05, W * 0.36, H * 0.42, 0, 0, Math.PI * 2); ctx.fill(); // shoulders
+        ctx.fillStyle = '#c98b5e'; ctx.beginPath(); ctx.ellipse(cx, H * 0.47, W * 0.15, H * 0.2, 0, 0, Math.PI * 2); ctx.fill(); // face
+        ctx.fillStyle = '#16100c'; ctx.beginPath(); ctx.ellipse(cx, H * 0.33, W * 0.17, H * 0.11, 0, Math.PI, 0); ctx.fill(); // hair
+        ctx.fillStyle = `hsl(${(hue + 180) % 360} 80% 60%)`; ctx.globalAlpha = 0.45; ctx.fillRect(cx + W * 0.08, H * 0.3, W * 0.1, H * 0.4); ctx.globalAlpha = 1; // rim light
+        ctx.fillStyle = '#222'; ctx.fillRect(cx - W * 0.02, H * 0.6, W * 0.04, H * 0.5); // mic
+        ctx.fillStyle = '#555'; ctx.beginPath(); ctx.arc(cx, H * 0.6, W * 0.035, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = `600 ${Math.round(H * 0.06)}px system-ui, sans-serif`; ctx.fillText('● LIVE', W * 0.05, H * 0.1);
+      } else {
+        // main wall: big gradient sweep, light bars and the artist name
+        const g = ctx.createLinearGradient(0, 0, W, H);
+        g.addColorStop(0, `hsl(${hue} 95% 52%)`); g.addColorStop(0.5, `hsl(${(hue + 50) % 360} 90% 30%)`); g.addColorStop(1, `hsl(${(hue + 110) % 360} 95% 12%)`);
+        ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = 0.5; ctx.fillStyle = '#000';
+        for (let i = 0; i < 14; i++) { const x = ((i * 47 + t * 80) % (W + 60)) - 30; ctx.fillRect(x, 0, 10 + (i % 3) * 6, H); }
+        ctx.globalAlpha = 1;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+        ctx.fillStyle = `rgba(255,255,255,${0.15 + pulse * 0.2})`; ctx.fillRect(0, H * 0.78, W, H * 0.04);
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        let fs = Math.round(H * 0.28); ctx.font = `900 ${fs}px system-ui, sans-serif`;
+        while (ctx.measureText(title).width > W * 0.9 && fs > 8) { fs -= 2; ctx.font = `900 ${fs}px system-ui, sans-serif`; }
+        ctx.fillText(title, W / 2, H * 0.48);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       }
+      // LED pixel grid
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      for (let x = 1; x < W; x += 2) ctx.fillRect(x, 0, 1, H);
+      for (let y = 1; y < H; y += 2) ctx.fillRect(0, y, W, 1);
       tex.needsUpdate = true;
     };
     draw(0);
     let last = 0;
-    this.anim.push((t) => { if (t - last > 0.08) { last = t; draw(t); } });
+    this.anim.push((t) => { if (t - last > 0.1) { last = t; draw(t); } });
     return tex;
+  }
+
+  // A box truss between two points: four chords plus zig-zag lacing, merged into one geometry.
+  _truss(a, b, size = 0.52, into) {
+    const A = new THREE.Vector3(...a), B = new THREE.Vector3(...b);
+    const dir = B.clone().sub(A); const L = dir.length(); dir.normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    const s = size / 2, r = 0.035;
+    const out = into || [];
+    const piece = (x0, y0, z0, x1, y1, z1, rad) => {
+      const p0 = new THREE.Vector3(x0, y0, z0), p1 = new THREE.Vector3(x1, y1, z1);
+      const d = p1.clone().sub(p0); const len = d.length();
+      const g = new THREE.CylinderGeometry(rad, rad, len, 4, 1, true);
+      g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()));
+      g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      g.applyQuaternion(q); g.translate(A.x, A.y, A.z);
+      out.push(g);
+    };
+    const C = [[-s, -s], [s, -s], [s, s], [-s, s]];
+    for (const [x, z] of C) piece(x, 0, z, x, L, z, r * 1.4);
+    const n = Math.max(1, Math.round(L / size));
+    for (let i = 0; i < n; i++) {
+      const y0 = (i * L) / n, y1 = ((i + 1) * L) / n;
+      for (let f = 0; f < 4; f++) { const [x0, z0] = C[f], [x1, z1] = C[(f + 1) % 4]; i % 2 ? piece(x0, y0, z0, x1, y1, z1, r) : piece(x1, y0, z1, x0, y1, z0, r); }
+    }
+    return out;
+  }
+
+  _addMerged(geoms, mat, label) {
+    if (!geoms.length) return null;
+    const m = new THREE.Mesh(merge(geoms), mat); this.root.add(m);
+    if (label) { m.userData.label = label; this.blockers.push(m); }
+    return m;
+  }
+
+  // Volumetric-looking beam: additive cone that fades along its length and at its edges.
+  _beamMaterial(color) {
+    return new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) }, uLen: { value: 60 }, uOpacity: { value: 0.32 } },
+      vertexShader: `varying float vT; varying vec3 vN; varying vec3 vV; uniform float uLen;
+        void main(){ vT = clamp(-position.y / uLen, 0.0, 1.0); vec4 mv = modelViewMatrix * vec4(position,1.0);
+          vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `varying float vT; varying vec3 vN; varying vec3 vV; uniform vec3 uColor; uniform float uOpacity;
+        void main(){ float edge = pow(abs(dot(vN, vV)), 1.6); float fade = pow(1.0 - vT, 1.8);
+          gl_FragColor = vec4(uColor, uOpacity * edge * fade); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+  }
+
+  _hazeTexture() {
+    if (this._haze) return this._haze;
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128; const ctx = cv.getContext('2d');
+    for (let i = 0; i < 26; i++) {
+      const x = 20 + hash01('hx' + i) * 88, y = 20 + hash01('hy' + i) * 88, r = 18 + hash01('hr' + i) * 30;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(255,255,255,0.16)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
+    }
+    const mask = ctx.createRadialGradient(64, 64, 20, 64, 64, 64); mask.addColorStop(0, 'rgba(0,0,0,0)'); mask.addColorStop(1, 'rgba(0,0,0,1)');
+    ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = mask; ctx.fillRect(0, 0, 128, 128);
+    this._haze = new THREE.CanvasTexture(cv); return this._haze;
+  }
+
+  _addHaze(cx, cy, cz, spreadX, spreadZ, count, size, color, opacity) {
+    const tex = this._hazeTexture();
+    for (let i = 0; i < count; i++) {
+      const mat = new THREE.SpriteMaterial({ map: tex, color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      const s = new THREE.Sprite(mat);
+      const x = cx + (hash01('hzx' + i + cz) - 0.5) * spreadX, z = cz + (hash01('hzz' + i + cx) - 0.5) * spreadZ, y = cy + hash01('hzy' + i) * size * 0.4;
+      const k = size * (0.7 + hash01('hzs' + i) * 0.6);
+      s.scale.set(k, k * 0.6, 1); s.position.set(x, y, z); this.root.add(s);
+      const ph = i * 1.3; this.anim.push((t) => { s.position.x = x + Math.sin(t * 0.07 + ph) * 3; mat.rotation = Math.sin(t * 0.05 + ph) * 0.3; });
+    }
+  }
+
+  // A moving-head fixture hung from truss, with a beam into the haze.
+  _fixture(x, y, z, i, len, opts = {}) {
+    const root = this.root;
+    const body = new THREE.Mesh(this._fxBody || (this._fxBody = new THREE.BoxGeometry(0.45, 0.5, 0.45)), this._fxMat || (this._fxMat = new THREE.MeshLambertMaterial({ color: '#16171d' })));
+    body.position.set(x, y - 0.35, z); root.add(body);
+    const lens = new THREE.Mesh(this._lensGeo || (this._lensGeo = new THREE.CircleGeometry(0.16, 12)), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false }));
+    lens.rotation.x = Math.PI / 2; lens.position.set(x, y - 0.61, z); root.add(lens);
+    const geo = new THREE.ConeGeometry(opts.spread || 2.2, len, 20, 1, true); geo.translate(0, -len / 2, 0);
+    const mat = this._beamMaterial('#ffffff'); mat.uniforms.uLen.value = len; mat.uniforms.uOpacity.value = opts.opacity || 0.3;
+    const beam = new THREE.Mesh(geo, mat); beam.position.set(x, y - 0.6, z); beam.frustumCulled = false; root.add(beam);
+    const ph = i * 0.73, up = opts.up ? Math.PI : 0, base = opts.tilt ?? 0.35;
+    this.anim.push((t) => {
+      const cue = Math.floor(t / 8) % 4; // lighting cues change every 8s
+      const sweep = cue === 0 ? Math.sin(t * 0.8 + ph) * 0.5 : cue === 1 ? Math.sin(t * 1.6) * 0.35 : cue === 2 ? 0.25 * Math.sin(ph) : Math.sin(t * 0.5 + ph * 2) * 0.7;
+      beam.rotation.set(up + base + Math.sin(t * 0.6 + ph) * 0.18 * (cue === 2 ? 0 : 1), 0, sweep);
+      const hue = cue === 3 ? (t * 0.05 + i * 0.08) % 1 : [0.92, 0.6, 0.12, 0.8][cue];
+      const c = mat.uniforms.uColor.value.setHSL(hue, cue === 2 ? 0.2 : 0.95, 0.6);
+      lens.material.color.copy(c).multiplyScalar(2.2);
+      mat.uniforms.uOpacity.value = (opts.opacity || 0.3) * (cue === 1 ? 0.6 + 0.4 * Math.max(0, Math.sin(t * 6 + ph)) : 1);
+    });
+  }
+
+  // Blocky band members on stage.
+  _band(cx, y, cz, facing, scale = 1) {
+    const G = this._personGeoms();
+    const mats = { shirt: new THREE.MeshLambertMaterial({ color: '#111216' }), skin: new THREE.MeshLambertMaterial({ color: '#b07850' }), hair: new THREE.MeshLambertMaterial({ color: '#15110e' }), pants: new THREE.MeshLambertMaterial({ color: '#1d2233' }), gear: new THREE.MeshLambertMaterial({ color: '#2a2b33' }), chrome: new THREE.MeshLambertMaterial({ color: '#c9ccd6' }), red: new THREE.MeshLambertMaterial({ color: '#9c1d2c' }) };
+    const person = (x, z, s, up, shirt) => {
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(G.legs, mats.pants), new THREE.Mesh(up ? G.bodyUp : G.body, shirt || mats.shirt), new THREE.Mesh(G.head, mats.skin), new THREE.Mesh(G.hair, mats.hair));
+      g.scale.setScalar(s); g.position.set(x, y, z); g.rotation.y = facing; this.root.add(g); return g;
+    };
+    const fwd = (d) => [Math.sin(facing) * d, Math.cos(facing) * d];
+    const side = (d) => [Math.cos(facing) * d, -Math.sin(facing) * d];
+    const at = (lat, dep) => { const a = side(lat), b = fwd(dep); return [cx + a[0] + b[0], cz + a[1] + b[1]]; };
+    const S = 1.25 * scale;
+    // singer + mic stand
+    let [x, z] = at(0, 3.2 * scale); const singer = person(x, z, S * 1.05, true, new THREE.MeshLambertMaterial({ color: '#e8e2d6' }));
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.5 * S, 6), mats.chrome); stand.position.set(x + fwd(0.45)[0], y + 0.75 * S, z + fwd(0.45)[1]); this.root.add(stand);
+    // guitarist and bassist
+    const g1 = person(...at(-5 * scale, 1.2), S, false); const g2 = person(...at(5 * scale, 1.2), S, false);
+    for (const g of [g1, g2]) { const gtr = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.32, 0.08), mats.red); gtr.position.set(0, 0.85, 0.2); gtr.rotation.z = 0.5; g.add(gtr); }
+    // drum riser and kit
+    [x, z] = at(0, -2.5 * scale);
+    const riser = new THREE.Mesh(new THREE.BoxGeometry(4.5 * scale, 0.6, 3.2 * scale), mats.gear); riser.position.set(x, y + 0.3, z); riser.rotation.y = facing; this.root.add(riser);
+    const drummer = person(...at(0, -3.1 * scale), S, false); drummer.position.y = y + 0.6;
+    const kick = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.4, 16), mats.shirt); kick.rotation.x = Math.PI / 2; kick.rotation.z = facing; const kp = at(0, -2.2 * scale); kick.position.set(kp[0], y + 1.05, kp[1]); this.root.add(kick);
+    for (const [l, d, h] of [[-0.7, -2.4, 1.6], [0.7, -2.4, 1.6], [-1.1, -2.9, 1.9], [1.1, -2.9, 1.9]]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.02, 14), new THREE.MeshLambertMaterial({ color: '#c9a640' })); const p = at(l * scale, d * scale); c.position.set(p[0], y + h, p[1]); c.rotation.x = 0.2; this.root.add(c); }
+    // keys + amps
+    const kp2 = at(-8 * scale, -1.5); const keys = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.12, 0.45), mats.gear); keys.position.set(kp2[0], y + 0.95, kp2[1]); keys.rotation.y = facing; this.root.add(keys);
+    person(...at(-8 * scale, -2.1), S, false);
+    for (const l of [-6.5, -3.5, 3.5, 6.5]) { const p = at(l * scale, -0.6); const amp = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.7, 0.4), mats.gear); amp.position.set(p[0], y + 0.35, p[1]); amp.rotation.y = facing; this.root.add(amp); }
+    for (const l of [-3, -1.2, 1.2, 3]) { const p = at(l * scale, 3.6); const wedge = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.35, 0.5), mats.gear); wedge.position.set(p[0], y + 0.18, p[1]); wedge.rotation.y = facing; wedge.rotation.x = -0.4; this.root.add(wedge); }
+    this.anim.push((t) => { singer.position.y = y + Math.abs(Math.sin(t * 2.6)) * 0.12; singer.rotation.y = facing + Math.sin(t * 0.7) * 0.4; g1.rotation.y = facing + 0.3 + Math.sin(t * 1.3) * 0.15; g2.rotation.y = facing - 0.3 - Math.sin(t * 1.1) * 0.15; drummer.position.y = y + 0.6 + Math.abs(Math.sin(t * 5.2)) * 0.05; });
+    this.bandFocus = new THREE.Vector3(cx, y + 1.6, cz);
+  }
+
+  // Line array: a gently curved hang of boxes.
+  _lineArray(x, yTop, z, faceY, boxes = 12, label = 'Speaker hang') {
+    const g = new THREE.Group(); const mat = new THREE.MeshLambertMaterial({ color: '#0d0d11' });
+    let y = 0, tilt = 0;
+    for (let i = 0; i < boxes; i++) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.42, 0.7), mat); tilt += i < 4 ? 0.01 : 0.045;
+      b.position.set(0, y - 0.21, Math.sin(tilt) * 0.35 * i); b.rotation.x = tilt; g.add(b); y -= 0.43;
+      b.userData.label = label; this.blockers.push(b);
+    }
+    const bumper = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.9), new THREE.MeshLambertMaterial({ color: '#3b3d47' })); bumper.position.y = 0.06; g.add(bumper);
+    g.position.set(x, yTop, z); g.rotation.y = faceY; this.root.add(g); g.updateMatrixWorld(true);
   }
 
   _buildStage(model) {
     const st = model.stage, root = this.root;
-    const deckMat = new THREE.MeshLambertMaterial({ color: '#1c1d26' });
-    const trussMat = new THREE.MeshLambertMaterial({ color: '#4a4f62' });
-    const blackMat = new THREE.MeshLambertMaterial({ color: '#0c0c11' });
+    const deckMat = new THREE.MeshLambertMaterial({ color: '#16171d' });
+    const topMat = new THREE.MeshLambertMaterial({ color: '#24252c' });
+    const trussMat = new THREE.MeshLambertMaterial({ color: '#9aa0ad' });
+    const blackMat = new THREE.MeshLambertMaterial({ color: '#08080b' });
     const addTarget = (m) => { this.targets.push(m); return m; };
-    const beams = [];
+    const trussGeoms = [];
+    const arena = model.venue.kind === 'arena';
+
     if (st.type === 'end') {
       const cz = st.zBack + st.d / 2;
+      // deck with a dark skirt and a light strip on the front edge
       const deck = new THREE.Mesh(new THREE.BoxGeometry(st.w, st.h, st.d), deckMat); deck.position.set(0, st.h / 2, cz); root.add(addTarget(deck));
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.15, 0.2), new THREE.MeshBasicMaterial({ color: '#ff7ad9' })); edge.position.set(0, st.h, st.zFront); root.add(edge);
-      // back wall + main screen
-      const backH = st.screenY + st.screenH + 6;
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(st.w + 8, backH, 1), blackMat); wall.position.set(0, backH / 2, st.zBack); root.add(wall);
-      const scr = new THREE.Mesh(new THREE.PlaneGeometry(st.screenW, st.screenH), new THREE.MeshBasicMaterial({ map: this._screenTexture(st.screenW, st.screenH, 'main') }));
-      scr.position.set(0, st.screenY + st.screenH / 2, st.zBack + 0.6); root.add(addTarget(scr));
-      this.mainScreen = scr;
-      // side screens
-      const sw = st.screenH * 0.62, sh = st.screenH * 1.05;
+      const top = new THREE.Mesh(new THREE.PlaneGeometry(st.w - 0.2, st.d - 0.2), topMat); top.rotation.x = -Math.PI / 2; top.position.set(0, st.h + 0.01, cz); root.add(top);
+      const lip = new THREE.Mesh(new THREE.BoxGeometry(st.w, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false })); lip.position.set(0, st.h - 0.05, st.zFront + 0.02); root.add(lip);
+      this.anim.push((t) => lip.material.color.setHSL((t * 0.05) % 1, 0.9, 0.35));
+      // front-of-stage barricade with a security pit
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(st.w + 6, 1.2, 0.5), new THREE.MeshLambertMaterial({ color: '#6c7280' })); bar.position.set(0, 0.6, st.zFront + 2.6); root.add(bar);
+
+      // roof structure: four towers, front and back truss beams, cross beams
+      const roofY = st.screenY + st.screenH + (arena ? 2.5 : 4.5);
+      const hw = st.w / 2 + (arena ? 1.5 : 3);
+      const zF = st.zFront - 0.6, zB = st.zBack - 1;
+      for (const sx of [-1, 1]) for (const z of [zF, zB]) this._truss([sx * hw, 0, z], [sx * hw, roofY, z], 0.75, trussGeoms);
+      for (const z of [zF, zB, (zF + zB) / 2]) this._truss([-hw, roofY, z], [hw, roofY, z], 0.6, trussGeoms);
+      for (const sx of [-1, -0.33, 0.33, 1]) this._truss([sx * hw, roofY, zB], [sx * hw, roofY, zF], 0.5, trussGeoms);
+      // stage roof canopy
+      const canopy = new THREE.Mesh(new THREE.PlaneGeometry(hw * 2 + 3, zF - zB + 4), new THREE.MeshLambertMaterial({ color: '#0d0e13', side: THREE.DoubleSide }));
+      canopy.rotation.x = -Math.PI / 2; canopy.position.set(0, roofY + 1.6, (zF + zB) / 2); root.add(canopy);
+      // wings for PA and side screens
+      const wingX = hw + (arena ? 4 : 9);
       for (const sx of [-1, 1]) {
-        const s = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), new THREE.MeshBasicMaterial({ map: this._screenTexture(sw, sh, 'side') }));
-        s.position.set(sx * (st.w / 2 + sw / 2 + 3), st.screenY + sh / 2 - 1, st.zBack + st.d * 0.4); s.rotation.y = -sx * 0.35; root.add(addTarget(s));
-        const fr = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.6, sh + 0.6, 0.5), blackMat); fr.position.copy(s.position); fr.rotation.copy(s.rotation); fr.translateZ(-0.3); root.add(fr);
-        // speaker hangs
-        const spk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 9, 1.6), blackMat); spk.position.set(sx * (st.w / 2 - 2), st.screenY + st.screenH - 2, st.zFront - 1.5); root.add(spk);
-        spk.userData.label = 'Speaker hang'; this.blockers.push(spk);
-        // truss towers
-        const tw = new THREE.Mesh(new THREE.BoxGeometry(1.2, backH + 4, 1.2), trussMat); tw.position.set(sx * (st.w / 2 + 1), (backH + 4) / 2, st.zFront - 1); root.add(tw);
-        tw.userData.label = 'Stage tower'; this.blockers.push(tw);
+        this._truss([sx * hw, roofY - 0.4, zF + 1], [sx * wingX, roofY - 0.4, zF + 1], 0.45, trussGeoms);
+        this._truss([sx * wingX, 0, zF + 1], [sx * wingX, roofY - 0.4, zF + 1], 0.55, trussGeoms);
       }
-      const roofTruss = new THREE.Mesh(new THREE.BoxGeometry(st.w + 4, 1.2, st.d), trussMat); roofTruss.position.set(0, backH + 3.4, cz); root.add(roofTruss);
-      for (let i = 0; i < 10; i++) beams.push({ x: -st.w / 2 + 3 + (i * (st.w - 6)) / 9, y: backH + 2.6, z: st.zFront - 2 });
+      this._addMerged(trussGeoms.splice(0), trussMat, 'Stage tower');
+
+      // main LED wall with a black border, and LED columns either side
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(st.w + 2, roofY, 0.6), blackMat); wall.position.set(0, roofY / 2, st.zBack - 0.4); root.add(wall);
+      const scr = new THREE.Mesh(new THREE.PlaneGeometry(st.screenW, st.screenH), new THREE.MeshBasicMaterial({ map: this._screenTexture(st.screenW, st.screenH, 'main'), toneMapped: false }));
+      scr.position.set(0, st.screenY + st.screenH / 2, st.zBack); root.add(addTarget(scr)); this.mainScreen = scr;
+      const colTex = this._screenTexture(4, 24, 'col');
+      const nCols = arena ? 2 : 3;
+      for (const sx of [-1, 1]) for (let i = 0; i < nCols; i++) {
+        const cw = arena ? 1.4 : 2.4, ch = st.screenH + st.screenY - 1;
+        const col = new THREE.Mesh(new THREE.PlaneGeometry(cw, ch), new THREE.MeshBasicMaterial({ map: colTex, toneMapped: false }));
+        col.position.set(sx * (st.screenW / 2 + 2 + i * (cw + (arena ? 1 : 2.4))), ch / 2 + 1, st.zBack + 0.5 + i * 0.8); root.add(col);
+      }
+      // IMAG side screens flown from the wings, angled toward the crowd
+      const sw = arena ? 7 : 14, sh = sw * 0.5625;
+      const camTex = this._screenTexture(sw, sh, 'cam');
+      for (const sx of [-1, 1]) {
+        const g = new THREE.Group();
+        const s = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh), new THREE.MeshBasicMaterial({ map: camTex, toneMapped: false })); g.add(addTarget(s));
+        const fr = new THREE.Mesh(new THREE.BoxGeometry(sw + 0.4, sh + 0.4, 0.3), blackMat); fr.position.z = -0.2; g.add(fr);
+        g.position.set(sx * (wingX - (arena ? 1 : 2)), roofY - 1.4 - sh / 2, zF + 2); g.rotation.y = -sx * 0.32; root.add(g); g.updateMatrixWorld(true);
+        // PA hang between stage and side screen
+        this._lineArray(sx * (hw + (arena ? 1.6 : 3)), roofY - 1.2, zF + 1.4, -sx * 0.18, arena ? 9 : 14);
+        // subs on the floor
+        for (let k = 0; k < 3; k++) { const sub = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.9, 1), blackMat); sub.position.set(sx * (st.w / 2 - 2 - k * 1.4), 0.45, st.zFront + 1.2); root.add(sub); }
+      }
+      // fixtures on the front, mid and back truss; floor fixtures shooting up through the haze
+      const nF = arena ? 7 : 11;
+      for (let i = 0; i < nF; i++) { const x = -hw + 1.5 + (i * (2 * hw - 3)) / (nF - 1); this._fixture(x, roofY - 0.3, zF, i, roofY * 2.6, { tilt: 0.5 }); }
+      for (let i = 0; i < nF - 2; i++) { const x = -hw + 3 + (i * (2 * hw - 6)) / (nF - 3); this._fixture(x, roofY - 0.3, (zF + zB) / 2, i + 20, roofY * 1.6, { tilt: 0.1, spread: 1.6, opacity: 0.22 }); }
+      for (let i = 0; i < 6; i++) { const x = -st.w / 2 + 4 + (i * (st.w - 8)) / 5; this._fixture(x, st.h + 0.6, st.zBack + 1.5, i + 40, roofY * 3, { up: true, tilt: -0.25, spread: 1.4, opacity: 0.2 }); }
       if (st.catwalk) {
         const L = st.catwalk.z1 - st.catwalk.z0;
         const cw = new THREE.Mesh(new THREE.BoxGeometry(st.catwalk.w, st.h - 0.4, L), deckMat); cw.position.set(0, (st.h - 0.4) / 2, st.catwalk.z0 + L / 2); root.add(addTarget(cw));
-        const strip = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, L), new THREE.MeshBasicMaterial({ color: '#7af0ff' }));
-        for (const sx of [-1, 1]) { const s2 = strip.clone(); s2.position.set(sx * st.catwalk.w / 2, st.h - 0.35, st.catwalk.z0 + L / 2); root.add(s2); }
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, L), new THREE.MeshBasicMaterial({ color: '#9af4ff', toneMapped: false }));
+        for (const sx of [-1, 1]) { const s2 = strip.clone(); s2.position.set(sx * st.catwalk.w / 2, st.h - 0.42, st.catwalk.z0 + L / 2); root.add(s2); }
         const bs = new THREE.Mesh(new THREE.CylinderGeometry(st.bstage.r, st.bstage.r, st.h - 0.4, 32), deckMat); bs.position.set(0, (st.h - 0.4) / 2, st.bstage.z); root.add(addTarget(bs));
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(st.bstage.r, 0.12, 6, 48), new THREE.MeshBasicMaterial({ color: '#7af0ff' })); ring.rotation.x = Math.PI / 2; ring.position.set(0, st.h - 0.35, st.bstage.z); root.add(ring);
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(st.bstage.r, 0.08, 6, 48), new THREE.MeshBasicMaterial({ color: '#9af4ff', toneMapped: false })); ring.rotation.x = Math.PI / 2; ring.position.set(0, st.h - 0.38, st.bstage.z); root.add(ring);
       }
-      this.stageFocus = new THREE.Vector3(0, st.screenY * 0.7, st.zBack + st.d * 0.5);
+      this._band(0, st.h, st.zBack + st.d * (arena ? 0.5 : 0.62), 0, arena ? 0.75 : 1);
+      // stage wash lights
+      const wash = new THREE.PointLight('#ff9a6a', arena ? 40 : 160, st.w * 1.6, 1.6); wash.position.set(0, roofY - 2, st.zFront + 4); root.add(wash);
+      const back = new THREE.PointLight('#6a7dff', arena ? 30 : 120, st.w * 1.4, 1.6); back.position.set(0, roofY - 3, st.zBack + 2); root.add(back);
+      this.anim.push((t) => { wash.color.setHSL((0.05 + Math.sin(t * 0.1) * 0.05 + 1) % 1, 0.7, 0.6); back.color.setHSL((t * 0.04) % 1, 0.8, 0.55); });
+      // haze hanging over the stage and the front of the floor
+      this._addHaze(0, st.h + 2, cz, st.w, st.d, arena ? 6 : 10, arena ? 16 : 28, '#b9a7ff', 0.22);
+      this._addHaze(0, 3, st.zFront + 14, st.w * 1.4, 30, arena ? 4 : 8, arena ? 18 : 34, '#8f7dd8', 0.12);
+      this.stageFocus = new THREE.Vector3(0, (st.h + st.screenY + st.screenH) / 2, st.zBack + st.d * 0.4);
+      this.framePts = [[-st.w / 2, st.h, st.zFront], [st.w / 2, st.h, st.zFront], [-st.screenW / 2, st.screenY + st.screenH, st.zBack], [st.screenW / 2, st.screenY + st.screenH, st.zBack], [0, st.h, st.zFront]].map((p) => new THREE.Vector3(...p));
     } else {
+      // centre (in-the-round) stage
       const deck = new THREE.Mesh(new THREE.CylinderGeometry(st.r, st.r, st.h, 48), deckMat); deck.position.set(st.x, st.h / 2, st.z); root.add(addTarget(deck));
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(st.r, 0.14, 6, 64), new THREE.MeshBasicMaterial({ color: '#ff7ad9' })); ring.rotation.x = Math.PI / 2; ring.position.set(st.x, st.h, st.z); root.add(ring);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(st.r, 0.08, 6, 64), new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false })); ring.rotation.x = Math.PI / 2; ring.position.set(st.x, st.h - 0.05, st.z); root.add(ring);
+      this.anim.push((t) => ring.material.color.setHSL((t * 0.05) % 1, 0.9, 0.6).multiplyScalar(1.6));
       const cube = new THREE.Group(); cube.position.set(st.x, st.screenY + st.screenH / 2, st.z);
       const tex = this._screenTexture(st.screenW, st.screenH, 'main');
       for (let i = 0; i < 4; i++) {
-        const s = new THREE.Mesh(new THREE.PlaneGeometry(st.screenW, st.screenH), new THREE.MeshBasicMaterial({ map: tex }));
+        const s = new THREE.Mesh(new THREE.PlaneGeometry(st.screenW, st.screenH), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
         s.rotation.y = (i * Math.PI) / 2; s.translateZ(st.screenW / 2); cube.add(s); this.targets.push(s);
       }
+      const box2 = new THREE.Mesh(new THREE.BoxGeometry(st.screenW - 0.1, st.screenH - 0.1, st.screenW - 0.1), blackMat); cube.add(box2);
       root.add(cube); cube.updateMatrixWorld(true);
-      const hoop = new THREE.Mesh(new THREE.TorusGeometry(st.r + 3, 0.5, 6, 48), trussMat); hoop.rotation.x = Math.PI / 2; hoop.position.set(st.x, st.screenY + st.screenH + 4, st.z); root.add(hoop);
-      for (let i = 0; i < 12; i++) { const a2 = (i / 12) * Math.PI * 2; beams.push({ x: st.x + Math.cos(a2) * (st.r + 3), y: st.screenY + st.screenH + 3.4, z: st.z + Math.sin(a2) * (st.r + 3) }); }
-      this.stageFocus = new THREE.Vector3(st.x, st.screenY * 0.55, st.z);
+      // circular truss grid built from straight segments, with fixtures and four PA hangs
+      const R = st.r + 2, ry = st.screenY + st.screenH + 3, N = 16;
+      for (let i = 0; i < N; i++) { const a0 = (i / N) * Math.PI * 2, a1 = ((i + 1) / N) * Math.PI * 2; this._truss([st.x + Math.cos(a0) * R, ry, st.z + Math.sin(a0) * R], [st.x + Math.cos(a1) * R, ry, st.z + Math.sin(a1) * R], 0.5, trussGeoms); }
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2 + Math.PI / 4; this._truss([st.x + Math.cos(a) * R, ry, st.z + Math.sin(a) * R], [st.x + Math.cos(a) * R, ry + 30, st.z + Math.sin(a) * R], 0.3, trussGeoms); }
+      this._addMerged(trussGeoms.splice(0), trussMat);
+      for (let i = 0; i < N; i++) { const a = (i / N) * Math.PI * 2; this._fixture(st.x + Math.cos(a) * R, ry - 0.3, st.z + Math.sin(a) * R, i, ry * 2.5, { tilt: 0.4 }); }
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; this._lineArray(st.x + Math.cos(a) * (R + 1.5), ry - 1, st.z + Math.sin(a) * (R + 1.5), Math.PI / 2 - a, arena ? 8 : 12); }
+      this._band(st.x, st.h, st.z, 0, arena ? 0.6 : 0.8);
+      const wash = new THREE.PointLight('#ff9a6a', arena ? 40 : 140, st.r * 8, 1.6); wash.position.set(st.x, ry - 2, st.z); root.add(wash);
+      this._addHaze(st.x, st.h + 2, st.z, st.r * 3, st.r * 3, 8, st.r * 2.5, '#b9a7ff', 0.2);
+      this.stageFocus = new THREE.Vector3(st.x, st.screenY * 0.6, st.z);
+      const pts = [];
+      for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; pts.push(new THREE.Vector3(st.x + Math.cos(a) * st.r, st.h, st.z + Math.sin(a) * st.r)); pts.push(new THREE.Vector3(st.x + Math.cos(a) * st.screenW * 0.6, st.screenY + st.screenH, st.z + Math.sin(a) * st.screenW * 0.6)); }
+      this.framePts = pts;
     }
-    // light beams
-    const beamGeo = new THREE.ConeGeometry(2.6, 60, 16, 1, true); beamGeo.translate(0, -30, 0);
-    beams.forEach((b, i) => {
-      const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL((i * 0.09) % 1, 0.9, 0.6), transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
-      const m = new THREE.Mesh(beamGeo, mat); m.position.set(b.x, b.y, b.z); root.add(m);
-      const ph = i * 0.7;
-      this.anim.push((t) => { m.rotation.x = 0.55 + Math.sin(t * 0.7 + ph) * 0.45; m.rotation.z = Math.sin(t * 0.9 + ph * 1.3) * 0.6; mat.color.setHSL((t * 0.03 + i * 0.09) % 1, 0.9, 0.6); });
-    });
   }
 
   _buildObstacles(model) {
@@ -492,7 +723,7 @@ export class SeatView {
       const [x, y, z] = spots[i];
       const yaw = Math.atan2(target[0] - x, target[1] - z) + (hash01('y' + i) - 0.5) * 0.5;
       q.setFromAxisAngle(up, yaw); p.set(x, y, z);
-      const s = 0.92 + hash01('h' + i) * 0.16; sc.set(s, s, s);
+      const s = 1.08 + hash01('h' + i) * 0.18; sc.set(s, s, s);
       m4.compose(p, q, sc);
       legs.setMatrixAt(i, m4); head.setMatrixAt(i, m4); hair.setMatrixAt(i, m4);
       legs.setColorAt(i, col.set(PANTS[Math.floor(hash01('pa' + i) * PANTS.length)]));
@@ -510,7 +741,7 @@ export class SeatView {
     this.headMesh = head;
     if (phones.length) {
       const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.Float32BufferAttribute(phones, 3));
-      const pm = new THREE.PointsMaterial({ color: '#fff6d8', size: 0.22, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
+      const pm = new THREE.PointsMaterial({ color: new THREE.Color('#fff6d8').multiplyScalar(2.5), toneMapped: false, size: 0.2, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
       group.add(new THREE.Points(pg, pm));
     }
     this.crowd = group;
@@ -530,10 +761,11 @@ export class SeatView {
   flyTo(point, { instant = false } = {}) {
     const eye = new THREE.Vector3(point.x, point.y + EYE, point.z);
     this.eye = eye;
-    this.yaw = 0; this.pitch = this._restPitch(); this.fov = 58;
     const look = this.stageFocus.clone();
     const endQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, look, new THREE.Vector3(0, 1, 0)));
     this.baseQ = endQ;
+    this._frameStage();
+    this.yaw = this.rest.yaw; this.pitch = this.rest.pitch; this.fov = this.rest.fov; this.camera.fov = this.fov; this.camera.updateProjectionMatrix();
     const b = this.model.bounds;
     const startPos = new THREE.Vector3(eye.x * 0.4, Math.max(90, (b.z1 - b.z0) * 0.55), eye.z * 0.4 + (b.z1 - b.z0) * 0.35);
     const startQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(startPos, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0)));
@@ -576,7 +808,7 @@ export class SeatView {
       if (pts.size === 2) { const [a, b] = [...pts.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) this.fov = Math.max(14, Math.min(75, this.fov * (pinch / d))); pinch = d; return; }
       if (!drag) return;
       const k = (this.fov / 58) * 0.0042;
-      this.yaw = Math.max(-1.6, Math.min(1.6, drag.yaw - (e.clientX - drag.x) * k));
+      this.yaw = Math.max(-2, Math.min(2, drag.yaw - (e.clientX - drag.x) * k));
       this.pitch = Math.max(-0.7, Math.min(0.9, drag.pitch - (e.clientY - drag.y) * k));
     });
     const up = (e) => { pts.delete(e.pointerId); pinch = null; drag = null; };
@@ -587,9 +819,29 @@ export class SeatView {
   scrub(p) { this.scrubP = p; this.fly = null; }
 
   zoom(f) { this.fov = Math.max(14, Math.min(75, this.fov * f)); }
-  recentre() { this.yaw = 0; this.pitch = this._restPitch(); this.fov = 58; }
-  // on tall phone screens the sheet covers the bottom half, so tilt down a little to keep the stage and crowd in view
-  _restPitch() { return this.camera.aspect < 0.9 ? -0.2 : 0; }
+  recentre() { this.yaw = this.rest.yaw; this.pitch = this.rest.pitch; this.fov = this.rest.fov; }
+
+  // Aim and zoom so the whole stage (deck to top of the main screen) sits in the upper-middle of
+  // the frame from any seat: far seats get a longer lens, close seats a wider one.
+  _frameStage() {
+    const eye = this.eye, aspect = this.camera.aspect || 1;
+    const inv = new THREE.Matrix4().compose(eye, this.baseQ, new THREE.Vector3(1, 1, 1)).invert();
+    let h0 = Infinity, h1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const p of this.framePts || []) {
+      const c = p.clone().applyMatrix4(inv); if (c.z > -0.5) continue;
+      const h = Math.atan2(c.x, -c.z), v = Math.atan2(c.y, -c.z);
+      h0 = Math.min(h0, h); h1 = Math.max(h1, h); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    if (!isFinite(h0)) { this.rest = { yaw: 0, pitch: 0, fov: 58 }; return; }
+    const hHalf = (h1 - h0) / 2, vHalf = (v1 - v0) / 2;
+    // stage should fill ~62% of the width (wide screens) and leave room for the sheet on phones
+    const fill = aspect < 0.9 ? 0.92 : 0.62;
+    const needV = Math.max(vHalf / 0.55, Math.atan(Math.tan(hHalf / fill) / aspect));
+    const fov = Math.max(14, Math.min(64, THREE.MathUtils.radToDeg(needV * 2)));
+    // place the stage a little above centre (the bottom sheet covers the lower part on phones)
+    const lift = THREE.MathUtils.degToRad(fov) * (aspect < 0.9 ? 0.16 : 0.06);
+    this.rest = { yaw: -(h0 + h1) / 2, pitch: (v0 + v1) / 2 - lift, fov };
+  }
 
   start() { if (this.running) return; this.running = true; this.resize(); const loop = () => { if (!this.running) return; this._frame(); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
   stop() { this.running = false; }
@@ -615,6 +867,6 @@ export class SeatView {
       if (k >= 1) this.fly = null;
     } else { cam.position.copy(this.eye); cam.quaternion.copy(finalQ); }
     if (Math.abs(cam.fov - this.fov) > 0.01) { cam.fov += (this.fov - cam.fov) * 0.2; cam.updateProjectionMatrix(); }
-    this.renderer.render(this.scene, cam);
+    this.composer.render();
   }
 }

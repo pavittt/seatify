@@ -30,7 +30,9 @@ Booking screens open as full-screen layers over the homepage with a wipe transit
 
 **Libraries:** GSAP 3.12.5 + ScrollTrigger (cdnjs), Locomotive Scroll 5 beta, which runs on Lenis for smooth scrolling (jsDelivr), Vanta.js 0.5.24 FOG (jsDelivr), three.js 0.160.0. The React Bits patterns used (SplitText, ScrollReveal, ScrollVelocity, Magnet, TiltedCard, Counter) are re-written in plain JS in `js/home.js`, so there is still no build step. Everything respects `prefers-reduced-motion`.
 
-**Type:** Archivo (variable width) for display, Instrument Serif italic for accent words, Geist and Geist Mono for body and data.
+**Look:** monochrome near-black and bone with one acid-lime signal colour (prices, buttons) and a soft lavender secondary. Archivo at medium weight in sentence case for display, Instrument Serif italic for accent words, Geist and Geist Mono for body and data.
+
+**Seat view realism:** the camera aims and zooms so the whole stage is in frame from any seat. The stage has box truss towers and roof grid, an LED main wall with visible pixel pitch, LED columns, flown IMAG side screens with a live camera feed, curved line-array PA hangs, subs, a barricade, a blocky band with drum riser and amps, moving-head fixtures whose beams change cues every 8 seconds, haze, and bloom post-processing (three.js UnrealBloomPass). The crowd dresses dark like a real gig crowd and holds up phone lights.
 
 **Images:** the venue images in `assets/venues/` are 1600×1000 renders from Seatify's own 3D scene, so there are no licensing issues. Swap in licensed photos with the same file names if you want real venue shots.
 

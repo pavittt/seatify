@@ -11,13 +11,13 @@
 // and temporary seated stands.
 
 export const CATS = {
-  LOUNGE: { label: 'Lounge', price: 25000, color: '#f3d36b' },
-  PIT: { label: 'Fan Pit', price: 15000, color: '#ff5c8a' },
-  PLAT: { label: 'Platinum', price: 11000, color: '#c792ff' },
-  GOLD: { label: 'Gold', price: 7500, color: '#ffb54a' },
-  GA: { label: 'Floor standing', price: 5500, color: '#3fe0a5' },
-  SILVER: { label: 'Silver', price: 4000, color: '#55c8ff' },
-  BRONZE: { label: 'Bronze', price: 2000, color: '#8b95ff' },
+  LOUNGE: { label: 'Lounge', price: 25000, color: '#f4f3ee' },
+  PIT: { label: 'Fan Pit', price: 15000, color: '#d7ff3a' },
+  PLAT: { label: 'Platinum', price: 11000, color: '#b9b4ff' },
+  GOLD: { label: 'Gold', price: 7500, color: '#f1c65b' },
+  GA: { label: 'Floor standing', price: 5500, color: '#7be3b4' },
+  SILVER: { label: 'Silver', price: 4000, color: '#7fb2ff' },
+  BRONZE: { label: 'Bronze', price: 2000, color: '#9a8f86' },
 };
 
 export const LAYOUTS = {

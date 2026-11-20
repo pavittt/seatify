@@ -82,7 +82,7 @@ function startVanta() {
   try {
     vanta = VANTA.FOG({
       el: '#vanta', THREE, mouseControls: true, touchControls: true, gyroControls: false,
-      minHeight: 200, minWidth: 200, highlightColor: 0xffb340, midtoneColor: 0xff2f7e, lowlightColor: 0x2a1466, baseColor: 0x0c0b0e,
+      minHeight: 200, minWidth: 200, highlightColor: 0x5a5a56, midtoneColor: 0x2b2b2a, lowlightColor: 0x161616, baseColor: 0x0a0a0a,
       blurFactor: 0.62, speed: 1.1, zoom: 0.85,
     });
   } catch (err) { console.warn('Vanta fog could not start', err); }

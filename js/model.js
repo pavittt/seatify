@@ -4,7 +4,7 @@ import { CATS } from './data/venues.js';
 
 export const SEAT_W = 0.55;
 export const ROW_D = 0.85;
-export const EYE = 1.36; // eye height of a standing blocky person, metres
+export const EYE = 1.62; // eye height of a standing person, metres
 
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'.split('');
 export function rowLabel(i) {
