@@ -36,7 +36,7 @@ A fixed sticker spins faster while you scroll and opens a seat view (from Airbor
 
 **Look:** a night palette of ink and cream, with acid lime, hot pink and electric violet as big rounded colour panels. Display type is Archivo at its heaviest weight and widest width, in caps, mixed with Instrument Serif italic letters. Body text is Geist and data is Geist Mono, with a fine film grain over everything.
 
-**Seat view realism:** the camera aims and zooms so the whole stage is in frame from any seat. The stage has box truss towers and roof grid, an LED main wall with visible pixel pitch, LED columns, flown IMAG side screens with a live camera feed, curved line-array PA hangs, subs, a barricade, a blocky band with drum riser and amps, moving-head fixtures whose beams change cues every 8 seconds, haze, and bloom post-processing (three.js UnrealBloomPass). The crowd dresses dark like a real gig crowd and holds up phone lights.
+**Seat view realism:** the camera aims and zooms so the whole stage is in frame from any seat. The stage has box truss towers and roof grid, an LED main wall with visible pixel pitch, LED columns, flown IMAG side screens with a live camera feed, curved line-array PA hangs, subs, a barricade, a band with drum riser and amps, moving-head fixtures whose beams change cues every 8 seconds, haze, and bloom post-processing (three.js UnrealBloomPass). The back of the set is built too: scaffold behind the video wall, black rear and side drapes, and flight cases in the wings, so side-stage seats see what they would really see. The crowd has human proportions (rounded bodies, varied heights and builds) and dresses dark like a real gig crowd, holding up phone lights. The stands have rows of seat backs, aisles and concrete steps.
 
 **Images:** the venue images in `assets/venues/` are 1600×1000 renders from Seatify's own 3D scene, so there are no licensing issues. Swap in licensed photos with the same file names if you want real venue shots.
 
@@ -75,6 +75,8 @@ Add an entry to `VENUES` in `js/data/venues.js`.
 ## Venue accuracy
 
 **Every layout is approximate.** Shapes and capacities come from public information (venue fact sheets, Wikipedia, and news coverage of recent concerts). Section numbers, row counts, prices and enclosure names are made up, because promoters redraw the plan for every show. Before a real launch, each show needs the promoter's official seating plan.
+
+**Which seats can see the stage** is worked out from where the stage actually is, not from the middle of the venue. For an end stage, any block whose middle sits level with or behind the video wall is closed (no view), and any seat behind that line is not sold. Blocks more than 65° round the side of the video wall are sold as *side-stage, limited view* at the lowest price, with a warning in the seat view. Real tours close different blocks for each stage design, so this still needs checking against each show's plan.
 
 | Venue | City | Type | Capacity used | Confidence |
 | --- | --- | --- | --- | --- |

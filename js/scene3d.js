@@ -16,6 +16,9 @@ const TOY = ['#ffcf3a'];
 const HAIR = ['#14110f', '#2b1d14', '#3d2a1c', '#5a3b25', '#1c1c1c', '#c8572e', '#6b6b6b'];
 
 function box(w, h, d, x, y, z) { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; }
+function shape(g, { x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, rx = 0, rz = 0 } = {}) {
+  g.scale(sx, sy, sz); if (rx) g.rotateX(rx); if (rz) g.rotateZ(rz); g.translate(x, y, z); return g;
+}
 function merge(geoms) {
   // tiny merge for non-indexed copies
   const parts = geoms.map((g) => g.toNonIndexed());
@@ -193,17 +196,27 @@ export class SeatView {
     for (const s of model.sections) {
       if (s.kind !== 'arc') continue;
       const base = new THREE.Color(s.closed ? '#22242e' : '#3a3f4f').lerp(new THREE.Color(CATS[s.cat].color), s.closed ? 0 : 0.18);
-      const M = 10;
+      const M = 12;
       for (let r = 0; r < s.rowsCount; r++) {
         const dIn = s.d0 + r * ROW_D - ROW_D / 2, dOut = dIn + ROW_D;
         const y = s.base + r * s.rake, yNext = y + s.rake;
-        c.copy(base).multiplyScalar(s.closed ? 1 : (r % 2 ? 0.55 : 0.68));
-        const riser = c.clone().multiplyScalar(0.6);
+        c.set(s.closed ? '#121318' : '#4a4c55').multiplyScalar(r % 2 ? 0.9 : 1);
+        const riser = new THREE.Color(s.closed ? '#0d0e12' : '#2e3038');
+        const concrete = new THREE.Color(s.closed ? '#121318' : '#5d5f68');
+        const seatCol = new THREE.Color(s.closed ? '#121318' : '#262a36').lerp(new THREE.Color(CATS[s.cat].color), 0.22);
+        const seatTop = seatCol.clone().multiplyScalar(1.25);
         for (let i = 0; i < M; i++) {
           const ta = s.t0 + ((s.t1 - s.t0) * i) / M, tb = s.t0 + ((s.t1 - s.t0) * (i + 1)) / M;
           const A = sePoint(a + dIn, b + dIn, n, ta), B = sePoint(a + dIn, b + dIn, n, tb);
           const C = sePoint(a + dOut, b + dOut, n, tb), D = sePoint(a + dOut, b + dOut, n, ta);
-          quad([A[0], y, A[1]], [B[0], y, B[1]], [C[0], y, C[1]], [D[0], y, D[1]], c);
+          const aisle = i === 0;
+          quad([A[0], y, A[1]], [B[0], y, B[1]], [C[0], y, C[1]], [D[0], y, D[1]], aisle ? concrete : c);
+          if (!aisle && !s.closed) {
+            // a row of plastic seat backs near the back of each tread
+            const P = [A[0] + (D[0] - A[0]) * 0.7, A[1] + (D[1] - A[1]) * 0.7], Q = [B[0] + (C[0] - B[0]) * 0.7, B[1] + (C[1] - B[1]) * 0.7];
+            quad([P[0], y + 0.05, P[1]], [Q[0], y + 0.05, Q[1]], [Q[0], y + 0.5, Q[1]], [P[0], y + 0.5, P[1]], seatCol);
+            quad([P[0], y + 0.42, P[1]], [Q[0], y + 0.42, Q[1]], [Q[0] + (C[0] - Q[0]) * 0.4, y + 0.44, Q[1] + (C[1] - Q[1]) * 0.4], [P[0] + (D[0] - P[0]) * 0.4, y + 0.44, P[1] + (D[1] - P[1]) * 0.4], seatTop);
+          }
           const top = r === s.rowsCount - 1 ? y + 2.2 : yNext;
           quad([D[0], y, D[1]], [C[0], y, C[1]], [C[0], top, C[1]], [D[0], top, D[1]], riser);
           if (r === 0) {
@@ -300,6 +313,15 @@ export class SeatView {
 
   // LED wall content: drawn small and scaled up with nearest filtering, then a dark
   // pixel grid on top, so up close it reads as an LED panel rather than a flat picture.
+  _drapeTexture() {
+    if (this._drape) return this._drape;
+    const c = document.createElement('canvas'); c.width = 256; c.height = 16;
+    const g = c.getContext('2d');
+    for (let x = 0; x < 256; x++) { const v = 70 + 45 * Math.sin(x * 0.42) + 18 * Math.sin(x * 1.3 + 1); g.fillStyle = `rgb(${v | 0},${v | 0},${(v + 6) | 0})`; g.fillRect(x, 0, 1, 16); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(6, 1); t.colorSpace = THREE.SRGBColorSpace;
+    return (this._drape = t);
+  }
+
   _screenTexture(w, h, kind) {
     const PX = kind === 'main' ? 192 : 72;
     const cv = document.createElement('canvas'); cv.width = PX * 2; cv.height = Math.max(8, Math.round((PX * h) / w)) * 2;
@@ -530,6 +552,28 @@ export class SeatView {
       }
       this._addMerged(trussGeoms.splice(0), trussMat, 'Stage tower');
 
+      // the back of the set: scaffold behind the video wall, black drapes, side masking and backstage kit.
+      // From side-stage seats this is what you actually see.
+      const backZ = st.zBack - 1.8;
+      const nCol = Math.max(4, Math.round((st.w + 2) / 3.2));
+      for (let i = 0; i <= nCol; i++) { const x = -(st.w + 2) / 2 + (i * (st.w + 2)) / nCol; this._truss([x, 0, backZ], [x, roofY - 0.5, backZ], 0.32, trussGeoms); }
+      for (let yy = 3; yy < roofY - 1; yy += 4.5) this._truss([-(st.w + 2) / 2, yy, backZ], [(st.w + 2) / 2, yy, backZ], 0.28, trussGeoms);
+      for (let i = 0; i <= nCol; i += 2) { const x = -(st.w + 2) / 2 + (i * (st.w + 2)) / nCol; this._truss([x, 0, backZ - 4], [x, roofY * 0.55, backZ], 0.22, trussGeoms); }
+      const drapeTex = this._drapeTexture();
+      const drapeMat = new THREE.MeshLambertMaterial({ map: drapeTex, color: '#3a3a44', side: THREE.DoubleSide });
+      const rear = new THREE.Mesh(new THREE.PlaneGeometry(st.w + 2, roofY), drapeMat); rear.position.set(0, roofY / 2, st.zBack - 0.75); root.add(rear);
+      const legW = st.d * 0.3;
+      for (const sx of [-1, 1]) {
+        const side = new THREE.Mesh(new THREE.PlaneGeometry(legW, roofY - 1), drapeMat); side.rotation.y = Math.PI / 2;
+        side.position.set(sx * (st.w / 2 + 0.6), (roofY - 1) / 2, st.zBack + legW / 2); root.add(side);
+        // flight cases and a dimmer rack stacked in the wings
+        for (let k = 0; k < 5; k++) {
+          const cw = 1.2 + hash01('fc' + k + sx) * 0.8, chh = 0.8 + hash01('fh' + k + sx) * 0.7;
+          const fc = new THREE.Mesh(new THREE.BoxGeometry(cw, chh, 0.9), new THREE.MeshLambertMaterial({ color: k % 2 ? '#202229' : '#2b2d36' }));
+          fc.position.set(sx * (st.w / 2 + 2.5 + (k % 3) * 1.6), chh / 2, st.zBack - 3 - Math.floor(k / 3) * 1.5); root.add(fc);
+        }
+      }
+      this._addMerged(trussGeoms.splice(0), trussMat, 'Stage set');
       // main LED wall with a black border, and LED columns either side
       const wall = new THREE.Mesh(new THREE.BoxGeometry(st.w + 2, roofY, 0.6), blackMat); wall.position.set(0, roofY / 2, st.zBack - 0.4); root.add(wall);
       const scr = new THREE.Mesh(new THREE.PlaneGeometry(st.screenW, st.screenH), new THREE.MeshBasicMaterial({ map: this._screenTexture(st.screenW, st.screenH, 'main'), toneMapped: false }));
@@ -631,13 +675,17 @@ export class SeatView {
 
   // ---------- crowd ----------
   _personGeoms() {
+    // rounded bodies with human proportions (about 1.72 m tall before per-person scaling)
     if (this._pg) return this._pg;
-    const legs = merge([box(0.15, 0.55, 0.2, -0.095, 0.275, 0), box(0.15, 0.55, 0.2, 0.095, 0.275, 0)]);
-    const body = merge([box(0.44, 0.5, 0.25, 0, 0.8, 0), box(0.12, 0.44, 0.14, -0.29, 0.82, 0), box(0.12, 0.44, 0.14, 0.29, 0.82, 0)]);
-    const bodyUp = merge([box(0.44, 0.5, 0.25, 0, 0.8, 0), box(0.12, 0.46, 0.14, -0.27, 1.26, 0.04), box(0.12, 0.46, 0.14, 0.27, 1.26, 0.04)]);
-    const headG = new THREE.CylinderGeometry(0.15, 0.15, 0.28, 10, 1, false); headG.translate(0, 1.2, 0);
-    const head = merge([headG, box(0.12, 0.06, 0.12, 0, 1.075, 0)]);
-    const hair = merge([box(0.33, 0.09, 0.33, 0, 1.37, -0.01), box(0.33, 0.16, 0.06, 0, 1.28, -0.15)]);
+    const leg = (x) => shape(new THREE.CylinderGeometry(0.08, 0.062, 0.9, 5, 1, true), { x, y: 0.45 });
+    const legs = merge([leg(-0.095), leg(0.095)]);
+    const torso = () => shape(new THREE.CapsuleGeometry(0.16, 0.4, 2, 7), { y: 1.12, sx: 1.18, sz: 0.66 });
+    const armDown = (sx) => shape(new THREE.CapsuleGeometry(0.048, 0.5, 1, 4), { x: sx * 0.235, y: 1.1, rz: sx * 0.12 });
+    const armUp = (sx) => shape(new THREE.CapsuleGeometry(0.048, 0.52, 1, 4), { x: sx * 0.24, y: 1.62, z: 0.05, rz: -sx * 0.2, rx: -0.15 });
+    const body = merge([torso(), armDown(-1), armDown(1)]);
+    const bodyUp = merge([torso(), armUp(-1), armUp(1)]);
+    const head = shape(new THREE.SphereGeometry(0.105, 8, 6), { y: 1.6, sx: 0.88, sy: 1.15 });
+    const hair = shape(new THREE.SphereGeometry(0.112, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.52), { y: 1.62, z: -0.012, sx: 0.9, sy: 1.08 });
     this._pg = { legs, body, bodyUp, head, hair };
     return this._pg;
   }
@@ -723,7 +771,7 @@ export class SeatView {
       const [x, y, z] = spots[i];
       const yaw = Math.atan2(target[0] - x, target[1] - z) + (hash01('y' + i) - 0.5) * 0.5;
       q.setFromAxisAngle(up, yaw); p.set(x, y, z);
-      const s = 1.08 + hash01('h' + i) * 0.18; sc.set(s, s, s);
+      const s = 0.93 + hash01('h' + i) * 0.13, wide = 0.9 + hash01('w' + i) * 0.24; sc.set(s * wide, s, s * wide);
       m4.compose(p, q, sc);
       legs.setMatrixAt(i, m4); head.setMatrixAt(i, m4); hair.setMatrixAt(i, m4);
       legs.setColorAt(i, col.set(PANTS[Math.floor(hash01('pa' + i) * PANTS.length)]));
@@ -734,7 +782,7 @@ export class SeatView {
       const shirt = col.set(SHIRTS[Math.floor(hash01('sh' + i) * SHIRTS.length)]);
       if (isUp[i]) {
         bodyUp.setMatrixAt(ui, m4); bodyUp.setColorAt(ui++, shirt);
-        if (hash01('ph' + i) < 0.4 && !(focus && Math.hypot(x - focus.x, z - focus.z) < 4)) { const fwd = 0.1; phones.push(x + Math.sin(yaw) * fwd + Math.cos(yaw) * 0.27 * s, y + 1.52 * s, z + Math.cos(yaw) * fwd - Math.sin(yaw) * 0.27 * s); }
+        if (hash01('ph' + i) < 0.4 && !(focus && Math.hypot(x - focus.x, z - focus.z) < 4)) { const fwd = 0.1; phones.push(x + Math.sin(yaw) * fwd + Math.cos(yaw) * 0.3 * s, y + 1.95 * s, z + Math.cos(yaw) * fwd - Math.sin(yaw) * 0.3 * s); }
       } else { bodyDown.setMatrixAt(di, m4); bodyDown.setColorAt(di++, shirt); }
     }
     for (const m of group.children) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }

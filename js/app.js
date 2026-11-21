@@ -90,7 +90,7 @@ function openSectionSheet(sec) {
   sheet.hidden = false;
   sheet.innerHTML = `
     <div class="sheet-head">
-      <div><div class="eyebrow">${esc(sec.tier)} · ${esc(CATS[sec.cat].label)}</div><h3>${esc(sec.label)}</h3>
+      <div><div class="eyebrow">${esc(sec.tier)} · ${esc(CATS[sec.cat].label)}${sec.sideStage ? ' · Side-stage, limited view' : ''}</div><h3>${esc(sec.label)}</h3>
       <div class="meta">${fmtINR(priceOf(m.venue, sec.cat))} each · ${free.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')} seats free</div></div>
       <button class="icon-btn" type="button" id="sheet-close" aria-label="Close section">✕</button>
     </div>

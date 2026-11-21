@@ -189,13 +189,18 @@ function buildBowlSections(model, venue, layoutId) {
       const tm = (t0 + t1) / 2;
       const [cx, cz] = sePoint(a + d0, b + d0, n, tm);
       const phi = phiOf(cx, cz);
-      const closedLimit = venue.kind === 'arena' ? 138 : 146;
-      const closed = layoutId !== 'center' && phi > closedLimit;
+      // Seats are judged against the real stage, not the venue centre: anything level with or
+      // behind the video wall looks at the back of the wall, so those blocks are not sold.
+      // Blocks between the wall and the stage front are sold as side-stage with a limited view.
+      const st = model.stage;
+      const [mx, mz] = sePoint(a + (d0 + dEnd) / 2, b + (d0 + dEnd) / 2, n, tm);
+      const closed = st.type === 'end' && mz < st.zBack + 6;
+      const sideStage = st.type === 'end' && !closed && Math.atan2(Math.abs(mx), mz - st.zBack) > (65 * Math.PI) / 180;
       const id = String(tier.prefix * 100 + k + 1);
       const sec = {
         id, label: 'Section ' + id, kind: 'arc', tier: tier.name, tierIdx: ti,
         t0, t1, d0, dEnd, base: tier.base, rake: tier.rake, rowsCount: tier.rows,
-        cat: bowlCategory(ti, tiers.length, phi, layoutId, venue.kind), closed, phi,
+        cat: sideStage ? 'BRONZE' : bowlCategory(ti, tiers.length, phi, layoutId, venue.kind), closed, sideStage, phi,
         availability: closed ? 'closed' : availabilityFor(venue.id + layoutId + id),
       };
       const ring = (d) => (u) => sePoint(a + d, b + d, n, t0 + (t1 - t0) * u);
@@ -213,7 +218,7 @@ function buildBowlSections(model, venue, layoutId) {
           const cnt = Math.max(4, Math.floor(arcLength(smp) / SEAT_W));
           const pts = seatsAlong(smp, 0, cnt);
           const label = rowLabel(r);
-          rows.push({ label, index: r, seats: pts.map((p, i) => ({ n: i + 1, x: p[0], y, z: p[1], sold: hash01(id + label + i) < rate })) });
+          rows.push({ label, index: r, seats: pts.map((p, i) => ({ n: i + 1, x: p[0], y, z: p[1], sold: hash01(id + label + i) < rate || (st.type === 'end' && p[1] < st.zBack + 3) })) });
         }
         sec._rows = rows;
         return rows;
@@ -312,13 +317,17 @@ export function viewStats(model, p) {
   const screenDist = Math.hypot(horiz, eyeY - (st.screenY + st.screenH / 2));
   const tvInches = Math.round(((2.5 * st.screenW) / screenDist / 0.8716 / 0.0254));
   const offCentre = st.type === 'center' ? 0 : p.x;
-  return { dist, angle, elev, height: p.y, offCentre, tvInches, screenDist, horiz };
+  // how far round the side of the main video wall you are (0 = square on, 90+ = edge-on or behind)
+  const screenAngle = st.type === 'center' ? 0 : (Math.atan2(Math.abs(p.x), p.z - st.zBack) * 180) / Math.PI;
+  return { dist, angle, elev, height: p.y, offCentre, tvInches, screenDist, horiz, screenAngle };
 }
 
 export function warningsFor(model, stats, opts = {}) {
   const w = [];
   const st = model.stage;
-  if (st.type === 'end' && stats.angle > 68) w.push({ level: 'warn', text: 'Side view. You see the stage from the side and will watch most of it on the side screens.' });
+  if (st.type === 'end' && stats.screenAngle > 90) w.push({ level: 'bad', text: 'Behind the stage line. You look at the back of the video wall and stage set, so you cannot see the show.' });
+  else if (st.type === 'end' && stats.screenAngle > 72) w.push({ level: 'bad', text: 'Side-stage, limited view. The main video wall is almost edge-on from here; you see the band side-on and watch the side screens.' });
+  else if (st.type === 'end' && stats.angle > 68) w.push({ level: 'warn', text: 'Side view. You see the stage from the side and will watch most of it on the side screens.' });
   else if (st.type === 'end' && stats.angle > 45) w.push({ level: 'info', text: 'Angled view of the stage. The main screen looks a little squashed from here.' });
   if (stats.dist > 120) w.push({ level: 'warn', text: 'Far from the stage. Performers look tiny, so the screens do the work.' });
   if (stats.elev > 18) w.push({ level: 'info', text: 'High up. A great overview of the light show, with steep stairs.' });
