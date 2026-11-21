@@ -72,7 +72,9 @@ export class SeatView {
     this.scene.fog = new THREE.Fog('#07080f', 280, 1600);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1500);
     // bloom makes LED walls, lenses and beams glow like they do through haze
-    this.composer = new EffectComposer(this.renderer);
+    // the composer's own buffer needs MSAA, or every edge seen from above stair-steps
+    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(this.renderer, rt);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.62);
     this.composer.addPass(this.bloom);
@@ -157,6 +159,38 @@ export class SeatView {
     this.root.add(stars);
   }
 
+  _maxAniso() { return this.renderer.capabilities.getMaxAnisotropy(); }
+
+  // mown stadium grass: soft 6 m stripes with fine noise. Smooth, mipmapped and anisotropic so it
+  // stays clean (no shimmer or pixel steps) when you look down at it from the top tier.
+  _grassTex() {
+    if (this._grass) return this._grass;
+    const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+    for (let i = 0; i < 512; i++) {
+      const s = 0.5 + 0.5 * Math.cos((i / 512) * Math.PI * 2);
+      x.fillStyle = `rgb(${Math.round(58 + 14 * s)},${Math.round(100 + 18 * s)},${Math.round(48 + 8 * s)})`;
+      x.fillRect(i, 0, 1, 512);
+    }
+    const img = x.getImageData(0, 0, 512, 512), d = img.data;
+    for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * 10; d[i] += n; d[i + 1] += n; d[i + 2] += n * 0.6; }
+    x.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 12, 1 / 12); t.anisotropy = this._maxAniso();
+    return (this._grass = t);
+  }
+
+  // floor protection decking over the pitch: 2 x 1 m grey panels, faint seams
+  _deckTex(w, d) {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+    x.fillStyle = '#2a2b30'; x.fillRect(0, 0, 256, 256);
+    x.strokeStyle = 'rgba(0,0,0,0.35)'; x.lineWidth = 3;
+    for (let i = 0; i <= 256; i += 128) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 256); x.stroke(); }
+    for (let j = 0; j <= 256; j += 64) { x.beginPath(); x.moveTo(0, j); x.lineTo(256, j); x.stroke(); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 4, d / 4); t.anisotropy = this._maxAniso();
+    return t;
+  }
+
   _buildGround(model) {
     const v = model.venue;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshLambertMaterial({ color: v.scenery === 'palms' ? '#2a2418' : '#141a16' }));
@@ -165,7 +199,9 @@ export class SeatView {
     if (model.field.type === 'bowl') {
       const { a, b, n } = model.field; const shape = new THREE.Shape();
       for (let i = 0; i <= 96; i++) { const [x, z] = sePoint(a, b, n, (i / 96) * Math.PI * 2); i ? shape.lineTo(x, -z) : shape.moveTo(x, -z); }
-      const f = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: v.kind === 'arena' ? '#2a2a2e' : '#3f6b34' }));
+      const f = new THREE.Mesh(new THREE.ShapeGeometry(shape), v.kind === 'arena'
+        ? new THREE.MeshLambertMaterial({ color: '#2a2a2e' })
+        : new THREE.MeshLambertMaterial({ map: this._grassTex() }));
       f.rotation.x = -Math.PI / 2; f.position.y = 0; this.root.add(f);
     } else {
       const { w, d } = model.field;
@@ -182,6 +218,7 @@ export class SeatView {
     const fl = model.floor;
     const deck = new THREE.Mesh(new THREE.PlaneGeometry(fl.x1 - fl.x0, fl.z1 - fl.z0), new THREE.MeshLambertMaterial({ color: '#26272c' }));
     deck.rotation.x = -Math.PI / 2; deck.position.set((fl.x0 + fl.x1) / 2, 0.02, (fl.z0 + fl.z1) / 2); this.root.add(deck);
+    deck.material.map = this._deckTex(fl.x1 - fl.x0, fl.z1 - fl.z0); deck.material.color.set('#ffffff');
     const barrierMat = new THREE.MeshLambertMaterial({ color: '#9aa3b8' });
     for (const z of model.zones) {
       const mat = new THREE.MeshBasicMaterial({ color: CATS[z.cat].color, transparent: true, opacity: 0.035, depthWrite: false });
