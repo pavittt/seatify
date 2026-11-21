@@ -20,7 +20,7 @@ Pick a show or a venue and the whole stadium opens in 3D, with every seat drawn 
 
 The homepage is a scroll story. Every section has its own scroll scene, each one rebuilt with Seatify's own content from a technique on the reference sites:
 
-1. **Stage (from Danilo De Marco):** after the preloader and a violet curtain lift, a live three.js concert plays in a rounded frame. As you scroll, the frame grows to full screen, the headline splits apart, and the camera flies from a crane shot over the crowd into Sec 115, Row K. A viewfinder HUD and three steps (pick, fly, know) go with it.
+1. **The stadium wakes up:** the page opens on a dark Narendra Modi Stadium with one lime seat glowing. A wave of light runs out from it across all 80,000 chairs. Hover any block for its price and free seats, click to book it. Scrolling drives the camera from 330 m up, down over the block, onto your chair and into the seat, and the show starts as you land. A viewfinder HUD counts the altitude down and three steps (pick, fly, know) go with it. The hero seat is chosen so no speaker tower blocks the stage.
 2. **Crossing tapes (from Airborne):** a lime band and a pink band cross at an angle. They carry the cities and venues, and their speed and skew follow how fast you scroll.
 3. **Split title with tumbling cards (from Bleibtgleich):** "Shows 26—27" pulls apart while show cards tumble up through it in 3D.
 4. **Drag gallery (from Niccolò Miranda):** the shows scroll sideways while the section is pinned, or you can drag them with inertia. Phones swipe instead. Cards tilt and catch a glare under the pointer.

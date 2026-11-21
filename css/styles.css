@@ -125,9 +125,9 @@ html.layer-open body::after { display: none; }
 /* ---------- STAGE: expanding live 3D frame ---------- */
 .stage { position: relative; background: var(--ink); }
 .stage-pin { position: relative; height: 100svh; overflow: hidden; }
-.stage-frame { --ft: 30%; --fx: 3.5%; --fb: 3.5%; --fr: 30px; position: absolute; inset: 0; --it: 0%; --ix: 0%; --ib: 0%; --ir: 0px; clip-path: inset(calc(var(--ft) + var(--it)) calc(var(--fx) + var(--ix)) calc(var(--fb) + var(--ib)) calc(var(--fx) + var(--ix)) round calc(var(--fr) + var(--ir))); background: #07060c; }
+.stage-frame { --ft: 0%; --fx: 0%; --fb: 0%; --fr: 0px; position: absolute; inset: 0; --it: 0%; --ix: 0%; --ib: 0%; --ir: 0px; clip-path: inset(calc(var(--ft) + var(--it)) calc(var(--fx) + var(--ix)) calc(var(--fb) + var(--ib)) calc(var(--fx) + var(--ix)) round calc(var(--fr) + var(--ir))); background: #07060c; }
 #fly-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.stage-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(0deg, rgba(13,11,20,.85) 0%, rgba(13,11,20,0) 42%), linear-gradient(90deg, rgba(13,11,20,calc(.75 * var(--steps, 0))) 0%, rgba(13,11,20,0) 60%); }
+.stage-shade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(7,6,12,calc(.82 * (1 - var(--steps, 0)))) 0%, rgba(7,6,12,0) 46%), linear-gradient(0deg, rgba(13,11,20,.85) 0%, rgba(13,11,20,0) 30%), linear-gradient(90deg, rgba(13,11,20,calc(.75 * var(--steps, 0))) 0%, rgba(13,11,20,0) 60%); }
 .vf { position: absolute; inset: calc(var(--ft) + var(--it) + 14px) calc(var(--fx) + var(--ix) + 14px) calc(var(--fb) + var(--ib) + 14px); pointer-events: none; }
 .vf-c { position: absolute; width: 22px; height: 22px; border: 0 solid var(--lime); }
 .vf-c.tl { left: 0; top: 0; border-left-width: 2px; border-top-width: 2px; }
@@ -164,7 +164,7 @@ html.layer-open body::after { display: none; }
 .curtain { position: absolute; left: 0; right: 0; top: 0; height: 100svh; z-index: 50; background: var(--violet); pointer-events: none; clip-path: inset(0% 0% 0% 0%); }
 html.ready .curtain { pointer-events: none; }
 @media (max-width: 899px) {
-  .stage-frame { --ft: 27%; --fx: 2.5%; --fb: 2.5%; --fr: 22px; }
+  .stage-frame { --ft: 0%; --fx: 0%; --fb: 0%; --fr: 0px; }
   .hero-ov { padding-bottom: calc(2.5% + 34px); }
   .hero-row { padding-inline: 10px; }
   .hero-lede { font-size: 13.5px; }
@@ -534,3 +534,5 @@ html.layer-open .sticker, html:not(.ready) .sticker { opacity: 0; pointer-events
   .seat-nav .pill { font-size: 10px; padding-inline: 10px; }
   .seat-step { width: 36px; height: 36px; }
 }
+@media (min-width: 900px) { .hero-title { font-size: clamp(36px, 7vw, 150px); } }
+.stage .vf-c.tl, .stage .vf-c.tr, .stage .vf-hud.tl, .stage .vf-hud.tr { opacity: var(--steps, 0); transition: opacity .3s; }

@@ -59,6 +59,8 @@ export class SeatView {
     this.uTime = { value: 0 };
     this.anim = [];
     this.yaw = 0; this.pitch = 0; this.fov = 58;
+    // light-up wave across the chairs: seats within `reveal` metres of `revealOrigin` are lit
+    this.reveal = { value: 1e6 }; this.revealOrigin = { value: new THREE.Vector2() };
     this.running = false;
     this.toyHeads = false;
     if (interactive) this._bindControls();
@@ -881,7 +883,17 @@ export class SeatView {
       const back2 = new THREE.BoxGeometry(0.4, 0.46, 0.04); back2.rotateX(-0.14); back2.translate(0, 0.72, -0.17);
       this._chairGeo = merge([box(0.4, 0.045, 0.36, 0, 0.43, 0.02), back2, box(0.035, 0.035, 0.3, -0.235, 0.6, -0.02), box(0.035, 0.035, 0.3, 0.235, 0.6, -0.02), box(0.035, 0.2, 0.035, -0.235, 0.5, -0.12), box(0.035, 0.2, 0.035, 0.235, 0.5, -0.12), box(0.05, 0.42, 0.05, 0, 0.21, -0.05)]);
     }
-    const mesh = new THREE.InstancedMesh(this._fieldGeo, new THREE.MeshLambertMaterial({ color: '#ffffff' }), list.length);
+    const fieldMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    fieldMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uReveal = this.reveal; sh.uniforms.uOrigin = this.revealOrigin;
+      sh.vertexShader = 'uniform vec2 uOrigin;\nvarying float vDist;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vDist = distance(vec2(instanceMatrix[3][0], instanceMatrix[3][2]), uOrigin);');
+      sh.fragmentShader = 'uniform float uReveal;\nvarying float vDist;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+  float litK = 1.0 - smoothstep(uReveal - 14.0, uReveal, vDist);
+  diffuseColor.rgb *= mix(0.015, 1.0, litK);
+  float rim = 1.0 - smoothstep(0.0, 7.0, abs(vDist - uReveal + 5.0));
+  totalEmissiveRadiance += vec3(0.78, 1.0, 0.24) * rim * 1.6;`);
+    };
+    const mesh = new THREE.InstancedMesh(this._fieldGeo, fieldMat, list.length);
     mesh.frustumCulled = false;
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
     this._seatMats = new Float32Array(list.length * 16);
@@ -1078,7 +1090,22 @@ export class SeatView {
     this.onArrive?.();
   }
 
-  skipDive() { if (this.dive) { this.dive = null; this._arrive(); } }
+  skipDive() { if (this.dive && !this.dive.manual) { this.dive = null; this._arrive(); } }
+
+  // The same swoop, but scrubbed by the page scroll (0 = stadium overview, 1 = in the seat).
+  prepareScrubDive(point, seat, { shiftX = 0, zoom = 1 } = {}) {
+    this.enterOverview({ instant: true });
+    this.ov.target.x += shiftX; this.ov.zoom = zoom; this.ovGoal = { ...this.ov, target: this.ov.target.clone() };
+    const pose = this._overviewPose();
+    this.camera.position.copy(pose.pos); this.camera.quaternion.copy(pose.q); this.camera.fov = pose.fov; this.camera.updateProjectionMatrix();
+    this.diveTo(point, seat);
+    if (this.dive) { this.dive.manual = true; this.dive.durs = [1, 1, 1]; }
+    this.diveP = 0;
+  }
+  setDiveP(p) {
+    this.diveP = Math.max(0, Math.min(1, p));
+    if (this.dive?.manual && this.diveP > 0.001) this.houseTarget = this.diveP > 0.985 ? 0 : 1;
+  }
 
   // quick sideways hop to a neighbouring seat
   hopTo(point, seat) {
@@ -1290,7 +1317,8 @@ export class SeatView {
     if (this.houseTarget != null) {
       this.houseMix = (this.houseMix ?? 0) + (this.houseTarget - (this.houseMix ?? 0)) * 0.05;
       this._applyHouse();
-      if (this.crowd) this.crowd.visible = this.mode === 'seat' && !this.dive && !this.empty && this.houseMix < 0.6;
+      const diving = this.dive && !(this.dive.manual && this.diveP > 0.985);
+      if (this.crowd) this.crowd.visible = this.mode === 'seat' && !diving && !this.empty && this.houseMix < 0.6;
     }
     const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2);
     if (this.mode === 'overview') {
@@ -1310,7 +1338,7 @@ export class SeatView {
       return;
     }
     if (this.dive) {
-      const d = this.dive, el = t - d.t0, tot = d.durs[0] + d.durs[1] + d.durs[2];
+      const d = this.dive, tot = d.durs[0] + d.durs[1] + d.durs[2], el = d.manual ? this.diveP * tot * 0.99999 : t - d.t0;
       let seg = 0, acc = 0; while (seg < 2 && el > acc + d.durs[seg]) acc += d.durs[seg++];
       const local = Math.min(1, (el - acc) / d.durs[seg]);
       // ease in at the start, ease out at the end, keep moving through the middle beats
@@ -1319,7 +1347,7 @@ export class SeatView {
       cam.quaternion.copy(d.qs[seg]).slerp(d.qs[seg + 1], e);
       cam.fov = d.fovs[seg] + (d.fovs[seg + 1] - d.fovs[seg]) * e; cam.updateProjectionMatrix();
       this.onDive?.(Math.min(1, el / tot));
-      if (el >= tot) this._arrive();
+      if (!d.manual && el >= tot) this._arrive();
       this.composer.render();
       return;
     }

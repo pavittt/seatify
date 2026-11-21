@@ -83,15 +83,32 @@ const fly = { view: null, visible: true, built: false };
 function buildFly() {
   const v = venueById('nms');
   const model = getModel(v, 'catwalk');
-  const sec = model.sections.filter((s) => s.tierIdx === 0 && !s.closed && s.availability !== 'soldout').sort((a, b) => Math.abs(a.phi - 38) - Math.abs(b.phi - 38))[0];
-  const row = sec.getRows()[9]; const seat = row.seats[Math.floor(row.seats.length / 2)];
+  // a lower-tier seat with a clear line to the stage: no delay tower or sound desk in the way
+  const st = model.stage, fz = st.zBack + st.d * 0.4;
+  // check sight lines to five points across the stage, not just its centre
+  const clear = (p) => [-0.5, -0.25, 0, 0.25, 0.5].every((k) => model.obstacles.every((o) => {
+    if (o.type !== 'tower') return true;
+    const fx = st.w * k, dx = fx - p.x, dz = fz - p.z, L2 = dx * dx + dz * dz;
+    const t = Math.max(0, Math.min(1, ((o.x - p.x) * dx + (o.z - p.z) * dz) / L2));
+    return Math.hypot(p.x + dx * t - o.x, p.z + dz * t - o.z) > Math.max(o.w, o.d) / 2 + 1.5;
+  }));
+  let sec, row, seat;
+  const cands = model.sections.filter((s) => s.tierIdx === 0 && !s.closed && !s.sideStage && s.availability !== 'soldout').sort((a, b) => Math.abs(a.phi - 38) - Math.abs(b.phi - 38));
+  for (const c of cands) { const r = c.getRows()[9]; const st2 = r.seats[Math.floor(r.seats.length / 2)]; if (clear(st2)) { sec = c; row = r; seat = st2; break; } }
+  if (!sec) { sec = cands[0]; row = sec.getRows()[9]; seat = row.seats[Math.floor(row.seats.length / 2)]; }
   const view = new SeatView($('#fly-canvas'), { interactive: false, background: '#07060c' });
   view.showTitle = firstShow.artist;
-  view.heroStart = true;
   view.load(model);
   view.buildCrowd({ x: seat.x, y: seat.y, z: seat.z, seat }, { cap: finePointer ? 26000 : 11000 });
-  view.flyTo({ x: seat.x, y: seat.y, z: seat.z }, { instant: true });
-  view.scrub(0);
+  // desktop: the bowl sits to the right of the headline; phones: below it
+  const wide = innerWidth / innerHeight > 0.9, b = model.bounds;
+  view.prepareScrubDive({ x: seat.x, y: seat.y, z: seat.z }, seat, wide ? { shiftX: -(b.x1 - b.x0) * 0.3, zoom: 1.02 } : { zoom: 1.05 });
+  // the stadium starts dark: only your seat glows, until the intro wave lights every chair
+  view.revealOrigin.value.set(seat.x, seat.z);
+  view.reveal.value = motion ? 0 : 1e6;
+  view.houseMix = motion ? 0 : 1; view.houseTarget = motion ? 0.05 : 1;
+  let far = 0; for (const s2 of model.sections) if (s2.center) far = Math.max(far, Math.hypot(s2.center[0] - seat.x, s2.center[1] - seat.z));
+  fly.far = far + 60;
   view.start();
   fly.view = view; fly.built = true;
   fly.label = `SEC ${sec.id} · ROW ${row.label} · SEAT ${seat.n}`;
@@ -113,7 +130,9 @@ function setupStage() {
   };
   const update = (p) => {
     const q = clamp01((p - 0.16) / 0.8);
-    fly.view?.scrub(Math.min(1, q * 1.12));
+    fly.q = q;
+    fly.view?.setDiveP(Math.min(1, q * 1.08));
+    if (q > 0.01 && fly.view) { fly.view.setHover(null); $('#hero-tip').hidden = true; }
     const sv = clamp01((p - 0.18) / 0.08);
     pin.style.setProperty('--steps', sv.toFixed(3));
     setStep(sv < 0.5 ? -1 : q < 0.36 ? 0 : q < 0.72 ? 1 : 2);
@@ -121,6 +140,25 @@ function setupStage() {
     if (fly.view) hudAlt.textContent = `ALT ${Math.max(0, Math.round(fly.view.camera.position.y))} M`;
     hudSeat.textContent = q > 0.55 && fly.label ? fly.label + (q > 0.8 ? ` · ${Math.round(fly.stats.dist)} M TO STAGE` : '') : 'SEC — · ROW — · SEAT —';
   };
+  const tip = $('#hero-tip');
+  let heroItem = null;
+  pin.addEventListener('pointermove', (e) => {
+    const v = fly.view;
+    if (!v || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-title')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
+    const it = v.pickAt(e.clientX, e.clientY);
+    if (it !== heroItem) { heroItem = it; v.setHover(it); }
+    if (!it) { tip.hidden = true; return; }
+    const m = v.model; let free = 0;
+    if (it.kind !== 'zone') for (const r of it.getRows()) for (const st of r.seats) if (!st.sold) free++;
+    tip.innerHTML = `<b>${esc(it.kind === 'zone' ? it.label : 'Sec ' + it.id)}</b><span>${esc(it.kind === 'zone' ? 'Standing' : CATS[it.cat].label + ' · ' + it.tier)} · ${fmtINR(priceOf(m.venue, it.cat))}</span><em>${it.kind === 'zone' ? 'Click to stand here' : free ? free.toLocaleString('en-IN') + ' free · click to fly in' : 'Sold out'}</em>`;
+    tip.hidden = false; tip.style.left = Math.min(innerWidth - 220, e.clientX + 18) + 'px'; tip.style.top = Math.max(70, e.clientY - 20) + 'px';
+  });
+  pin.addEventListener('pointerleave', () => { heroItem = null; fly.view?.setHover(null); tip.hidden = true; });
+  pin.addEventListener('click', (e) => {
+    if (!heroItem || e.target.closest('button, a')) return;
+    const it = heroItem; heroItem = null; tip.hidden = true; fly.view?.setHover(null);
+    openFirst(); window.__seatify?.pick3d(it);
+  });
   if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); return; }
   const cs = getComputedStyle(frame);
   const start = { '--ft': cs.getPropertyValue('--ft').trim(), '--fx': cs.getPropertyValue('--fx').trim(), '--fb': cs.getPropertyValue('--fb').trim(), '--fr': cs.getPropertyValue('--fr').trim() };
@@ -419,6 +457,14 @@ function intro() {
     .from(['.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.2)
     .from('#hero-ov .kicker', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
     .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.4);
+  const v = fly.view;
+  if (v) {
+    // one seat glows in the dark, then a wave of light runs out from it across every chair
+    fly.waking = true;
+    tl.add(() => { v.houseTarget = 1; }, 1.5)
+      .to(v.reveal, { value: fly.far || 400, duration: 3.2, ease: 'power2.in' }, 1.1)
+      .add(() => { v.reveal.value = 1e6; fly.waking = false; }, 4.4);
+  }
 }
 
 function preload(work) {
