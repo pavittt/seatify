@@ -5,6 +5,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { CATS } from './data/venues.js';
 import { ROW_D, EYE, hash01, priceOf, fmtINR } from './model.js';
 import { createCrowdMesh } from './crowd.js';
@@ -80,13 +82,14 @@ export class SeatView {
     this.scene.fog = new THREE.Fog('#07080f', 280, 1600);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.2, 1500);
     // bloom makes LED walls, lenses and beams glow like they do through haze
-    // the composer's own buffer needs MSAA, or every edge seen from above stair-steps
-    const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
-    this.composer = new EffectComposer(this.renderer, rt);
+    this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.62);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
+    // the composer's buffers have no MSAA, so smooth edges with FXAA (an MSAA buffer drew a black
+    // block over the hero on Mac GPUs)
+    this.fxaa = new ShaderPass(FXAAShader); this.composer.addPass(this.fxaa);
     this.clock = new THREE.Clock();
     this.uTime = { value: 0 };
     this.anim = [];
@@ -107,6 +110,7 @@ export class SeatView {
     const pr = this.renderer.getPixelRatio();
     this.composer.setPixelRatio(pr); this.composer.setSize(w, h);
     this.bloom.resolution.set((w * pr) / 2, (h * pr) / 2);
+    this.fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
     this.camera.aspect = w / h;
     if (this.eye) {
       // keep whatever zoom the viewer chose (1x, 2x...) when the window changes shape
