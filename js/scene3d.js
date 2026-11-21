@@ -84,6 +84,16 @@ export class SeatView {
     // bloom makes LED walls, lenses and beams glow like they do through haze
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    // A single NaN or Inf pixel (a shader edge case on some GPUs, or a half-float overflow) gets
+    // spread by the bloom blur into big black blocks. Scrub those pixels before bloom sees them.
+    this.composer.addPass(new ShaderPass({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+        void main(){ vec4 c = texture2D(tDiffuse, vUv);
+          if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+          gl_FragColor = clamp(c, 0.0, 64.0); }`,
+    }));
     this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.62);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());

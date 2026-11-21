@@ -197,7 +197,7 @@ export function createCrowdMesh(spots, { uTime, fog }) {
       void main() {
         float yaw = iData.y, sc = iData.z;
         vec3 toCam = cameraPosition - iPos; toCam.y = 0.0; float L = length(toCam); toCam /= max(L, 1e-4);
-        vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
+        vec3 right = L > 1e-3 ? normalize(cross(vec3(0.0, 1.0, 0.0), toCam)) : vec3(1.0, 0.0, 0.0);
         // which view of the person faces the camera: back, back 3/4, side or front
         vec2 f = vec2(sin(yaw), cos(yaw)), v = toCam.xz;
         float d = dot(f, v), crs = f.x * v.y - f.y * v.x;
