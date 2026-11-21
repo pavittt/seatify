@@ -58,6 +58,14 @@ function sePoint(a, b, n, t) {
   return [a * Math.sign(c) * Math.pow(Math.abs(c), e), b * Math.sign(s) * Math.pow(Math.abs(s), e)];
 }
 
+// Flat layers on the field (grass, track, deck, zone tints) sit a few cm apart. Seen from the
+// 300 m hero shot that is below depth precision, so they flickered into jagged stripes and
+// wedges. Lift each layer and give it a polygon offset so the upper one always wins.
+function flatLayer(m, k) {
+  m.material.polygonOffset = true; m.material.polygonOffsetFactor = -k; m.material.polygonOffsetUnits = -4 * k;
+  return m;
+}
+
 export class SeatView {
   constructor(canvas, { interactive = true, background = '#07080f' } = {}) {
     this.canvas = canvas;
@@ -70,7 +78,7 @@ export class SeatView {
     this.scene.background = new THREE.Color('#07080f');
     // light night air: the far stand of a 230 m bowl should still be there, just a little hazy
     this.scene.fog = new THREE.Fog('#07080f', 280, 1600);
-    this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1500);
+    this.camera = new THREE.PerspectiveCamera(58, 1, 0.2, 1500);
     // bloom makes LED walls, lenses and beams glow like they do through haze
     // the composer's own buffer needs MSAA, or every edge seen from above stair-steps
     const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -194,7 +202,7 @@ export class SeatView {
   _buildGround(model) {
     const v = model.venue;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshLambertMaterial({ color: v.scenery === 'palms' ? '#2a2418' : '#141a16' }));
-    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; this.root.add(ground);
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.5; this.root.add(ground);
 
     if (model.field.type === 'bowl') {
       const { a, b, n } = model.field; const shape = new THREE.Shape();
@@ -217,18 +225,18 @@ export class SeatView {
     // floor deck and standing zones
     const fl = model.floor;
     const deck = new THREE.Mesh(new THREE.PlaneGeometry(fl.x1 - fl.x0, fl.z1 - fl.z0), new THREE.MeshLambertMaterial({ color: '#26272c' }));
-    deck.rotation.x = -Math.PI / 2; deck.position.set((fl.x0 + fl.x1) / 2, 0.02, (fl.z0 + fl.z1) / 2); this.root.add(deck);
+    deck.rotation.x = -Math.PI / 2; deck.position.set((fl.x0 + fl.x1) / 2, 0.12, (fl.z0 + fl.z1) / 2); flatLayer(deck, 2); this.root.add(deck);
     deck.material.map = this._deckTex(fl.x1 - fl.x0, fl.z1 - fl.z0); deck.material.color.set('#ffffff');
     const barrierMat = new THREE.MeshLambertMaterial({ color: '#9aa3b8' });
     for (const z of model.zones) {
       const mat = new THREE.MeshBasicMaterial({ color: CATS[z.cat].color, transparent: true, opacity: 0.035, depthWrite: false });
       if (z.ring) {
         const m = new THREE.Mesh(new THREE.RingGeometry(z.ring.r0, z.ring.r1, 48), mat);
-        m.rotation.x = -Math.PI / 2; m.position.set(z.ring.x, 0.04, z.ring.z); this.root.add(m);
+        m.rotation.x = -Math.PI / 2; m.position.set(z.ring.x, 0.16, z.ring.z); flatLayer(m, 3); this.root.add(m);
       } else {
         const r = z.rect;
         const m = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, r.z1 - r.z0), mat);
-        m.rotation.x = -Math.PI / 2; m.position.set((r.x0 + r.x1) / 2, 0.04, (r.z0 + r.z1) / 2); this.root.add(m);
+        m.rotation.x = -Math.PI / 2; m.position.set((r.x0 + r.x1) / 2, 0.16, (r.z0 + r.z1) / 2); flatLayer(m, 3); this.root.add(m);
         const bar = new THREE.Mesh(new THREE.BoxGeometry(r.x1 - r.x0, 1.1, 0.15), barrierMat);
         bar.position.set((r.x0 + r.x1) / 2, 0.55, r.z0 - 0.5); this.root.add(bar);
       }
@@ -456,7 +464,7 @@ export class SeatView {
     const pts = (k, path) => { for (let i = 0; i <= 120; i++) { const [x, z] = sePoint(a - k, b - k, n, (i / 120) * Math.PI * 2); i ? path.lineTo(x, -z) : path.moveTo(x, -z); } };
     pts(0, shape); pts(13, hole); shape.holes.push(hole);
     const m = new THREE.Mesh(new THREE.ShapeGeometry(shape, 1), new THREE.MeshLambertMaterial({ color: '#8f3a2a' }));
-    m.rotation.x = -Math.PI / 2; m.position.y = 0.01; this.root.add(m);
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.06; flatLayer(m, 1); this.root.add(m);
   }
 
   _buildStands(model) {
