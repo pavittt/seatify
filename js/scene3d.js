@@ -1,12 +1,6 @@
 // The 3D "view from your seat": stepped stands, stage, lights and a crowd of
 // chunky toy-block people rendered with instancing.
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { CATS } from './data/venues.js';
 import { ROW_D, EYE, hash01, priceOf, fmtINR } from './model.js';
 import { createCrowdMesh } from './crowd.js';
@@ -75,31 +69,15 @@ export class SeatView {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 0.9;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#07080f');
     // light night air: the far stand of a 230 m bowl should still be there, just a little hazy
     this.scene.fog = new THREE.Fog('#07080f', 280, 1600);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.2, 1500);
-    // bloom makes LED walls, lenses and beams glow like they do through haze
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    // A single NaN or Inf pixel (a shader edge case on some GPUs, or a half-float overflow) gets
-    // spread by the bloom blur into big black blocks. Scrub those pixels before bloom sees them.
-    this.composer.addPass(new ShaderPass({
-      uniforms: { tDiffuse: { value: null } },
-      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
-        void main(){ vec4 c = texture2D(tDiffuse, vUv);
-          if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
-          gl_FragColor = clamp(c, 0.0, 64.0); }`,
-    }));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.62);
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
-    // the composer's buffers have no MSAA, so smooth edges with FXAA (an MSAA buffer drew a black
-    // block over the hero on Mac GPUs)
-    this.fxaa = new ShaderPass(FXAAShader); this.composer.addPass(this.fxaa);
+    // No post-processing: render straight to the canvas with the GPU's own antialiasing. The
+    // bloom glow washed the picture out and its buffers drew a black block on some Mac GPUs.
+    this.composer = { render: () => this.renderer.render(this.scene, this.camera) };
     this.clock = new THREE.Clock();
     this.uTime = { value: 0 };
     this.anim = [];
@@ -117,10 +95,6 @@ export class SeatView {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
-    const pr = this.renderer.getPixelRatio();
-    this.composer.setPixelRatio(pr); this.composer.setSize(w, h);
-    this.bloom.resolution.set((w * pr) / 2, (h * pr) / 2);
-    this.fxaa.material.uniforms.resolution.value.set(1 / (w * pr), 1 / (h * pr));
     this.camera.aspect = w / h;
     if (this.eye) {
       // keep whatever zoom the viewer chose (1x, 2x...) when the window changes shape
@@ -1009,7 +983,7 @@ export class SeatView {
     group.add(mesh);
     if (phones.length) {
       const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.Float32BufferAttribute(phones, 3));
-      const pm = new THREE.PointsMaterial({ color: new THREE.Color('#fff6d8').multiplyScalar(2.2), toneMapped: false, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+      const pm = new THREE.PointsMaterial({ color: new THREE.Color('#fff6d8').multiplyScalar(1.1), toneMapped: false, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
       group.add(new THREE.Points(pg, pm));
     }
     group.visible = !this.empty;
@@ -1271,13 +1245,12 @@ export class SeatView {
   _applyHouse() {
     const k = this.houseMix ?? 0;
     const ovm = this.mode === 'overview';
-    if (this.hemi) this.hemi.intensity = 1.0 + ((ovm ? 3.6 : 2.2) - 1.0) * k;
-    if (this.house) this.house.intensity = 0.8 * k;
-    if (this.flood) this.flood.intensity = (ovm ? 0.6 : 1.8) * k;
+    if (this.hemi) this.hemi.intensity = 0.7 + ((ovm ? 1.5 : 1.3) - 0.7) * k;
+    if (this.house) this.house.intensity = 0.35 * k;
+    if (this.flood) this.flood.intensity = (ovm ? 0.5 : 1.1) * k;
     if (this.crowdMat) this.crowdMat.uniforms.uLight.value = 0.6 + 0.6 * k;
-    if (this.ovLight) this.ovLight.intensity = (ovm ? 3.2 : 0.6) * k;
-    this.renderer.toneMappingExposure = 1.15 + 0.2 * k;
-    if (this.bloom) this.bloom.strength = 0.85 - 0.45 * k;
+    if (this.ovLight) this.ovLight.intensity = (ovm ? 1.3 : 0.4) * k;
+    this.renderer.toneMappingExposure = 0.9;
     // no haze over the long overview shot, the night haze returns once you are in the seat
     const f = this.scene.fog; this._fog0 ||= { near: f.near, far: f.far };
     f.near = this._fog0.near + (2600 - this._fog0.near) * k; f.far = this._fog0.far + (5200 - this._fog0.far) * k;
