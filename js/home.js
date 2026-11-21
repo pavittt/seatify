@@ -75,6 +75,7 @@ $('#nav-cta').onclick = openFirst;
 $('#hero-cta').onclick = openFirst;
 $('#foot-cta').onclick = openFirst;
 $('#hero-demo').onclick = () => openDemo();
+$('#hero-sticker').onclick = () => openDemo();
 
 // ---------- STAGE: live 3D in a frame that grows, then flies into a seat ----------
 const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
@@ -114,60 +115,36 @@ function buildFly() {
   fly.stats = viewStats(model, { x: seat.x, y: seat.y, z: seat.z });
 }
 
-// ---------- LED text: letters scramble like a departure board, then settle ----------
-const GLYPHS = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789₹·';
-function flap(el, text, { dur = 0.7, delay = 0 } = {}) {
-  if (!motion) { el.textContent = text; return; }
-  el._flap && cancelAnimationFrame(el._flap);
-  const t0 = performance.now() + delay * 1000, n = text.length;
-  const tick = (now) => {
-    const k = (now - t0) / (dur * 1000);
-    if (k < 0) { el._flap = requestAnimationFrame(tick); return; }
-    let out = '';
-    for (let i = 0; i < n; i++) { const ch = text[i]; out += ch === ' ' || k * n * 1.4 > i + n * 0.4 ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0]; }
-    el.textContent = out;
-    if (k < 1) el._flap = requestAnimationFrame(tick); else el.textContent = text;
-  };
-  el._flap = requestAnimationFrame(tick);
-}
-
-// ---------- one continuous night: board, prices, the drop, the show ----------
-const PRICE_NOTES = {
-  BRONZE: 'Top tier and the far corners. The band looks small, the big screens do the work.',
-  SILVER: 'Upper tier, facing the stage. You take in the whole production.',
-  GA: 'On the grass behind the pit. Loud, packed, and no seat to go back to.',
-  GOLD: 'Lower tier, the blocks nearest the stage. Faces, not just screens.',
-  PIT: 'Right at the barrier, wrapped around the catwalk.',
-};
 function setupStage() {
-  const pin = $('.stage-pin');
-  const bar = $('#fly-bar');
+  const pin = $('.stage-pin'), frame = $('#stage-frame');
+  const steps = $$('.step'); const bar = $('#fly-bar');
   const hudAlt = $('#hud-alt'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
-  const chs = Object.fromEntries($$('.chap').map((el) => [el.dataset.ch, el]));
-
-  // the board: every show as a row of LED text
-  const board = $('#board');
-  board.innerHTML = SHOWS.map((sh, i) => {
-    const v = venueById(sh.venue); const m = getModel(v, sh.layout);
-    const cats = new Set([...m.sections.filter((x) => !x.closed).map((x) => x.cat), ...m.zones.map((z) => z.cat)]);
-    const from = Math.min(...[...cats].map((c) => priceOf(v, c)));
-    return `<button type="button" class="b-row" data-i="${i}" data-cursor="Book">
-      <span class="b-date led" data-t="${esc(sh.date.replace(/ 20\d\d$/, '').toUpperCase())}"></span>
-      <span class="b-act led" data-t="${esc(sh.artist.toUpperCase())}"></span>
-      <span class="b-where led" data-t="${esc(cityOf(v).toUpperCase())}"></span>
-      <span class="b-from led" data-t="${esc('FROM ' + fmtINR(from))}"></span>
-    </button>`;
-  }).join('');
-  for (const r of $$('.b-row', board)) r.onclick = () => { const sh = SHOWS[+r.dataset.i]; openMap({ show: sh, venue: venueById(sh.venue), layout: sh.layout }); };
-  $('#board-count').textContent = SHOWS.length;
-  $('#know-cta').onclick = openFirst;
-
-  let priceCats = [];
+  let last = -2;
+  const setStep = (i) => {
+    if (i === last) return; last = i;
+    steps.forEach((el, k) => el.classList.toggle('on', k === i));
+    if (i >= 0) {
+      hudCount.textContent = `0${i + 1} — 03`;
+      if (motion) gsap.fromTo(steps[i].children, { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.8, stagger: 0.07, ease: 'expo.out', overwrite: true });
+    }
+  };
+  const update = (p) => {
+    const q = clamp01((p - 0.16) / 0.8);
+    fly.q = q;
+    fly.view?.setDiveP(Math.min(1, q * 1.08));
+    if (q > 0.01 && fly.view) { fly.view.setHover(null); $('#hero-tip').hidden = true; }
+    const sv = clamp01((p - 0.18) / 0.08);
+    pin.style.setProperty('--steps', sv.toFixed(3));
+    setStep(sv < 0.5 ? -1 : q < 0.36 ? 0 : q < 0.72 ? 1 : 2);
+    bar.style.transform = `scaleX(${q})`;
+    if (fly.view) hudAlt.textContent = `ALT ${Math.max(0, Math.round(fly.view.camera.position.y))} M`;
+    hudSeat.textContent = q > 0.55 && fly.label ? fly.label + (q > 0.8 ? ` · ${Math.round(fly.stats.dist)} M TO STAGE` : '') : 'SEC — · ROW — · SEAT —';
+  };
   const tip = $('#hero-tip');
   let heroItem = null;
   pin.addEventListener('pointermove', (e) => {
     const v = fly.view;
-    if (!v || (fly.p || 0) > 0.02 || !finePointer || fly.waking || e.target.closest('button, a, .hero-title, .chap.on')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
+    if (!v || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-title')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
     const it = v.pickAt(e.clientX, e.clientY);
     if (it !== heroItem) { heroItem = it; v.setHover(it); }
     if (!it) { tip.hidden = true; return; }
@@ -182,65 +159,21 @@ function setupStage() {
     const it = heroItem; heroItem = null; tip.hidden = true; fly.view?.setHover(null);
     openFirst(); window.__seatify?.pick3d(it);
   });
-
-  // chapters along the pinned scroll (p = 0..1)
-  const R = { board: [0.07, 0.3], price: [0.3, 0.5], s0: [0.5, 0.63], s1: [0.63, 0.76], s2: [0.76, 0.88], know: [0.88, 1.01] };
-  let active = null, priceIdx = -1;
-  const ease = (k) => (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
-  const setActive = (id) => {
-    if (id === active) return; active = id;
-    for (const [k, el] of Object.entries(chs)) el.classList.toggle('on', k === id);
-    pin.style.setProperty('--steps', id ? 1 : 0);
-    if (id === 'board') $$('.b-row .led', board).forEach((el, i) => flap(el, el.dataset.t, { delay: Math.floor(i / 4) * 0.06, dur: 0.55 }));
-    if (id === 'know' && fly.stats) {
-      const s = fly.stats;
-      $('#know-seat').textContent = fly.label;
-      $('#know').innerHTML = [['To stage', Math.round(s.dist) + ' M'], ['Off centre', Math.round(Math.abs(s.offCentre)) + ' M'], ['Height', Math.round(s.height) + ' M UP'], ['Screen looks like', s.tvInches + '″ TV']]
-        .map(([k, v]) => `<div><dt class="mono">${k}</dt><dd class="led" data-t="${v}"></dd></div>`).join('');
-      $$('#know dd').forEach((el, i) => flap(el, el.dataset.t, { delay: i * 0.12 }));
-    }
-    hudCount.textContent = id && id.startsWith('s') ? `0${+id[1] + 1} — 03` : '';
-  };
-  const showPrice = (i) => {
-    if (i === priceIdx || !priceCats.length) return; priceIdx = i;
-    const c = priceCats[i], m = fly.view.model;
-    fly.view.setFilter(c);
-    flap($('#price-led'), CATS[c].label.toUpperCase(), { dur: 0.5 });
-    flap($('#price-val'), fmtINR(priceOf(m.venue, c)), { dur: 0.5, delay: 0.08 });
-    $('#price-note').textContent = PRICE_NOTES[c] || '';
-  };
-  const update = (p) => {
-    fly.p = p;
-    const v = fly.view;
-    let id = null; for (const [k, [a, b]] of Object.entries(R)) if (p >= a && p < b) id = k;
-    setActive(id);
-    if (v && !priceCats.length) {
-      const m = v.model; const cats = new Set([...m.sections.filter((x) => !x.closed).map((x) => x.cat), ...m.zones.map((z) => z.cat)]);
-      priceCats = [...cats].sort((a, b) => priceOf(m.venue, a) - priceOf(m.venue, b));
-    }
-    // camera: circle the stadium through the board, come back round for the prices, then drop in
-    const orbit = p < R.board[1] ? ease(clamp01((p - R.board[0]) / (R.board[1] - R.board[0]))) * 0.9 : (1 - ease(clamp01((p - R.price[0]) / (R.price[1] - R.price[0])))) * 0.9;
-    const q = clamp01((p - R.s0[0]) / (R.s2[1] - R.s0[0]));
-    if (v) { v.preOrbit = orbit; v.setDiveP(q); }
-    if (id === 'price') showPrice(Math.min(priceCats.length - 1, Math.floor(((p - R.price[0]) / (R.price[1] - R.price[0])) * priceCats.length)));
-    else if (priceIdx !== -1) { priceIdx = -1; v?.setFilter(null); }
-    if (p > 0.02 && v && heroItem) { heroItem = null; v.setHover(null); tip.hidden = true; }
-    bar.style.transform = `scaleX(${p})`;
-    if (v) hudAlt.textContent = `ALT ${Math.max(0, Math.round(v.camera.position.y))} M`;
-    hudSeat.textContent = q > 0.3 && fly.label ? fly.label : 'SEC — · ROW — · SEAT —';
-  };
-  if (!motion) { Object.values(chs).forEach((c) => c.classList.add('on')); $$('.b-row .led').forEach((el) => (el.textContent = el.dataset.t)); return; }
+  if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); return; }
+  const cs = getComputedStyle(frame);
+  const start = { '--ft': cs.getPropertyValue('--ft').trim(), '--fx': cs.getPropertyValue('--fx').trim(), '--fb': cs.getPropertyValue('--fb').trim(), '--fr': cs.getPropertyValue('--fr').trim() };
   const lines = $$('.ht-line');
   const tl = gsap.timeline({
     defaults: { ease: 'none' },
-    scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 7, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
+    scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.2, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
   });
-  tl.to(lines[0], { yPercent: -60, opacity: 0, duration: 0.05 }, 0)
-    .to(lines[1], { yPercent: -60, opacity: 0, duration: 0.05 }, 0.008)
-    .to(lines[2], { yPercent: -60, opacity: 0, duration: 0.05 }, 0.016)
-    .to('#hero-ov .kicker', { opacity: 0, duration: 0.03 }, 0)
-    .to('.hero-row', { y: 60, opacity: 0, duration: 0.05 }, 0)
-    .to({}, { duration: 0.95 });
+  tl.fromTo(frame, start, { '--ft': '0%', '--fx': '0%', '--fb': '0%', '--fr': '0px', duration: 0.2 }, 0)
+    .to(lines[0], { xPercent: -40, opacity: 0, duration: 0.16 }, 0.01)
+    .to(lines[1], { scale: 1.5, opacity: 0, transformOrigin: '30% 50%', duration: 0.16 }, 0.01)
+    .to(lines[2], { xPercent: 40, opacity: 0, duration: 0.16 }, 0.01)
+    .to('#hero-ov .kicker', { y: -40, opacity: 0, duration: 0.1 }, 0)
+    .to('.hero-row', { y: 80, opacity: 0, duration: 0.12 }, 0)
+    .to({}, { duration: 0.8 });
   update(0);
   ScrollTrigger.create({
     trigger: '#how', start: 'top bottom', end: 'bottom top',
@@ -267,12 +200,15 @@ function setupMarquees() {
       t.el.style.transform = `translate3d(${t.x.toFixed(1)}px,0,0)` + (t.skew ? ` skewX(${(-velocity * 0.2 * t.dir).toFixed(2)}deg)` : '');
     }
     velocity *= 0.92;
+    stickerSpin(boost);
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
 }
 
 // ---------- fixed sticker spins faster while you scroll ----------
+const stickerSvg = $('#hero-sticker svg'); let stickerA = 0;
+function stickerSpin(boost) { stickerA = (stickerA + 0.35 + boost * 0.6) % 360; stickerSvg.style.transform = `rotate(${stickerA.toFixed(1)}deg)`; }
 
 // ---------- SWARM: split title, show cards tumbling up in 3D ----------
 function setupSwarm() {
@@ -423,6 +359,7 @@ function renderVenues() {
   $('#v-index').innerHTML = list.map((v) => `
     <li><button type="button" class="v-row" data-id="${v.id}" data-cursor="Open map">
       <span class="v-n mono">${String(VENUES.indexOf(v) + 1).padStart(2, '0')}</span>
+      <span class="v-thumb"><img src="${img(v.id)}" alt="" loading="lazy" width="1600" height="1000"></span>
       <span class="v-name">${esc(v.name)}</span>
       <span class="v-city mono">${esc(v.city)}</span>
       <span class="v-kind mono">${v.kind === 'ground' ? 'Open ground' : v.kind === 'arena' ? 'Indoor arena' : 'Stadium'}</span>
@@ -519,6 +456,7 @@ function intro() {
     .from('.nav > *', { y: -20, opacity: 0, duration: 0.8, stagger: 0.06 }, 0.9)
     .from(['.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.2)
     .from('#hero-ov .kicker', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
+    .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.4);
   const v = fly.view;
   if (v) {
     // one seat glows in the dark, then a wave of light runs out from it across every chair
@@ -548,7 +486,15 @@ function preload(work) {
 
 // ---------- boot ----------
 setupStage();
+setupMarquees();
+setupSwarm();
+setupShows();
+setupCube();
+setupLines();
+setupCompare();
 renderVenues();
+setupVenuePreview();
 setupPointerFx();
 setupReveals();
+setupFooter();
 preload(() => { buildFly(); if (hasGsap) ScrollTrigger.refresh(); });

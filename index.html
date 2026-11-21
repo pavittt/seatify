@@ -69,58 +69,109 @@
           </div>
         </div>
       </div>
-      <div class="chapters">
-        <article class="chap ch-board" data-ch="board">
-          <p class="ch-k mono"><i class="live"></i> Now showing · <span id="board-count">10</span> nights</p>
-          <div class="board" id="board"></div>
+      <div class="fly-steps">
+        <article class="step" data-step="0">
+          <span class="step-n mono">01 / Pick</span>
+          <h2 class="display">Pick a <em>seat</em></h2>
+          <p>Every section, row and seat is drawn to scale. Filter by price, tap a block, choose a seat.</p>
         </article>
-        <article class="chap ch-price" data-ch="price">
-          <p class="ch-k mono">Every block, priced before you pick</p>
-          <div class="led led-xl" id="price-led">BRONZE</div>
-          <div class="led led-l" id="price-val">₹2,000</div>
-          <p class="ch-p" id="price-note"></p>
+        <article class="step" data-step="1">
+          <span class="step-n mono">02 / Fly</span>
+          <h2 class="display">Fly <em>in</em></h2>
+          <p>The camera drops out of the sky and lands at your eye height, with the crowd packed around you.</p>
         </article>
-        <article class="chap ch-step" data-ch="s0">
-          <p class="ch-k mono">01 / Pick a block</p>
-          <h2 class="ch-h">Point at it.</h2>
-          <p class="ch-p">Every row and seat is drawn to scale. Hover a block for its price, tap it.</p>
-        </article>
-        <article class="chap ch-step" data-ch="s1">
-          <p class="ch-k mono">02 / Drop in</p>
-          <h2 class="ch-h">Your chair lights up.</h2>
-          <p class="ch-p">The camera comes down out of the night onto the exact seat you would sit in.</p>
-        </article>
-        <article class="chap ch-step" data-ch="s2">
-          <p class="ch-k mono">03 / Sit down</p>
-          <h2 class="ch-h">Then the lights go.</h2>
-          <p class="ch-p">You land at eye height, the crowd fills in around you, and the show starts.</p>
-        </article>
-        <article class="chap ch-know" data-ch="know">
-          <p class="ch-k mono" id="know-seat">Sec — · Row — · Seat —</p>
-          <dl class="know" id="know"></dl>
-          <button class="btn btn-solid magnetic" type="button" id="know-cta"><span class="btn-t" data-t="Find your seat">Find your seat</span><i aria-hidden="true">↗</i></button>
+        <article class="step" data-step="2">
+          <span class="step-n mono">03 / Know</span>
+          <h2 class="display">Know <em>before</em></h2>
+          <p>Distance, angle, height and how big the screen looks. If a sound desk or the tier above cuts in, you hear it from us first.</p>
         </article>
       </div>
       <div class="fly-progress" aria-hidden="true"><i id="fly-bar"></i></div>
-      <div class="scroll-cue mono" aria-hidden="true"><span>Hover any block · scroll to walk in</span><i></i></div>
+      <div class="scroll-cue mono" aria-hidden="true"><span>Hover any block · scroll to fly in</span><i></i></div>
       <div class="m3-tip" id="hero-tip" hidden></div>
     </div>
     <div class="curtain" id="curtain" aria-hidden="true"></div>
   </section>
 
-  <!-- VENUES INDEX -->
-  <section class="venues" id="venues">
+  <!-- TAPES: two crossing bands whose speed and skew follow the scroll -->
+  <section class="tapes" aria-label="Cities and venues">
+    <div class="tape tape-a"><div class="mq-track" id="mq-a"></div></div>
+    <div class="tape tape-b"><div class="mq-track" id="mq-b"></div></div>
+  </section>
+
+  <!-- SWARM: the title splits apart while show cards tumble up in 3D -->
+  <section class="swarm-sec panel panel-violet" id="shows">
+    <div class="swarm-pin">
+      <p class="kicker mono">(02) On sale now</p>
+      <h2 class="split-title" aria-label="Shows 2026 to 27"><span class="st-a">Shows</span><span class="st-mid"><em>this</em> season</span><span class="st-b">26—27</span></h2>
+      <div class="swarm" id="swarm" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <!-- SHOWS: drag or scroll sideways -->
+  <section class="shows panel panel-violet tail">
+    <div class="shows-pin">
+      <header class="shows-head">
+        <p class="sec-note mono"><span id="shows-count">10</span> shows · drag, or keep scrolling →</p>
+      </header>
+      <div class="shows-track" id="shows-track"></div>
+    </div>
+  </section>
+
+  <!-- CUBE: a cube of seat views grows and turns as you scroll -->
+  <section class="cube-sec" id="angles">
+    <div class="cube-pin">
+      <div class="outline-mq" aria-hidden="true"><div class="mq-track" id="mq-c"></div></div>
+      <div class="cube-copy">
+        <p class="kicker mono">(03) Every seat, every angle</p>
+        <h2 class="display big"><span class="split">Turn the</span> <em class="split">venue</em> <span class="split">over</span></h2>
+        <p class="cube-note">Six seats at six venues, each rendered from the exact spot. Scroll to spin it.</p>
+      </div>
+      <div class="cube-scene"><div class="cube" id="cube"></div></div>
+      <div class="cube-label mono" id="cube-label">—</div>
+    </div>
+  </section>
+
+  <!-- MANIFESTO: lines light up one by one -->
+  <section class="manifesto panel panel-pink">
+    <p class="kicker mono">(04) Why Seatify</p>
+    <h2 class="display big"><span class="split">A flat map</span> <em class="split">lies.</em></h2>
+    <ul class="lines" id="lines">
+      <li>It won't tell you Block 204 sits behind a speaker tower.</li>
+      <li>It won't tell you the upper tier hangs over Row AK.</li>
+      <li>It won't tell you the screen looks like a 25″ TV from up there.</li>
+      <li>So we built every venue seat by seat, and put you in it.</li>
+    </ul>
+  </section>
+
+  <!-- COMPARE: live numbers from the 3D model -->
+  <section class="compare">
+    <div class="spot-glow" aria-hidden="true"></div>
     <header class="sec-head">
-      <p class="ch-k mono">The venues</p>
-      <h2 class="led led-l">14 VENUES · 8 CITIES</h2>
+      <p class="kicker mono">(05) Same show, three tickets</p>
+      <h2 class="display big"><span class="split">Where you stand</span> <em class="split">changes everything</em></h2>
+    </header>
+    <div class="cmp-grid">
+      <div class="cmp-shot"><img src="assets/venues/nms.jpg" alt="View of the stage from a lower tier seat at Narendra Modi Stadium, rendered in Seatify's 3D view" loading="lazy" width="1600" height="1000"></div>
+      <div class="cmp-table-wrap"><table class="cmp mono" id="cmp-table"></table><p class="fine">Measured in Seatify's 3D model of Narendra Modi Stadium with a catwalk stage. Layout is approximate.</p></div>
+    </div>
+  </section>
+
+  <!-- VENUES INDEX -->
+  <section class="venues panel panel-lime" id="venues">
+    <header class="sec-head">
+      <p class="kicker mono">(06) The venues</p>
+      <h2 class="display big"><span class="split">Fourteen rooms,</span> <em class="split">one view</em></h2>
     </header>
     <div class="city-filter mono" id="city-filter" aria-label="Filter venues by city"></div>
     <ol class="v-index" id="v-index"></ol>
+    <div class="v-preview" id="v-preview" aria-hidden="true"><img alt="" id="v-preview-img"></div>
   </section>
 
   <footer class="foot">
+    <div class="foot-bg" id="foot-fog" aria-hidden="true"></div>
     <div class="foot-cta">
-      <p class="ch-k mono">Your turn</p>
+      <p class="kicker mono">(07) Your turn</p>
       <h2 class="display big"><span class="split">Doors open</span> <em class="split">soon</em></h2>
       <button class="btn btn-solid btn-xl magnetic" type="button" id="foot-cta"><span class="btn-t" data-t="Find your seat">Find your seat</span><i aria-hidden="true">↗</i></button>
     </div>
@@ -129,11 +180,15 @@
       <p>All venue layouts are approximate. Artists and shows are made up for this demo, and checkout takes no payment.</p>
       <p>Every image is rendered in Seatify's own 3D engine.</p>
     </div>
-    <div class="foot-mark led" aria-hidden="true">SEATIFY</div>
+    <div class="foot-mark" aria-hidden="true"><span class="fm-out">SEATIFY</span><span class="fm-fill" id="fm-fill">SEATIFY</span></div>
   </footer>
 </main>
 
-
+<!-- a sticker that spins with the scroll and opens a seat view -->
+<button class="sticker" type="button" id="hero-sticker" aria-label="Try it: pick a seat and see the view">
+  <svg viewBox="0 0 200 200" aria-hidden="true"><defs><path id="circ" d="M100,100 m-76,0 a76,76 0 1,1 152,0 a76,76 0 1,1 -152,0"/></defs><text><textPath href="#circ">PICK A SEAT ✦ SEE THE VIEW ✦ PICK A SEAT ✦ SEE THE VIEW ✦ </textPath></text></svg>
+  <span class="sticker-core" aria-hidden="true"><svg viewBox="0 0 40 40"><rect x="9" y="12" width="22" height="14" rx="3"/><rect x="12" y="26" width="3" height="5"/><rect x="25" y="26" width="3" height="5"/></svg></span>
+</button>
 
 <!-- ====== APP LAYERS ====== -->
 <section class="layer screen" id="screen-map" hidden>

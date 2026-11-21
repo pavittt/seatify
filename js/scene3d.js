@@ -918,13 +918,13 @@ export class SeatView {
   _paintSeats() {
     const mesh = this.seatField; if (!mesh) return;
     const free = new THREE.Color('#3a74ff'), taken = new THREE.Color('#1f2b52'), lit = new THREE.Color('#c6ff3d'), litTaken = new THREE.Color('#4d5a2a');
-    const dimFree = new THREE.Color('#0f1733'), match = new THREE.Color('#a9c6ff');
+    const dimFree = new THREE.Color('#16295c');
     const col = new THREE.Color();
     const hov = this.hover && this.hover.kind !== 'zone' ? this.hover.id : null;
     this._seatList.forEach(([seat, sec], i) => {
       const on = hov === sec.id;
       const dim = this.filter && sec.cat !== this.filter;
-      col.copy(on ? (seat.sold ? litTaken : lit) : seat.sold ? (dim ? dimFree : taken) : dim ? dimFree : this.filter ? match : free);
+      col.copy(on ? (seat.sold ? litTaken : lit) : seat.sold ? taken : dim ? dimFree : free);
       if (!on && !seat.sold) col.multiplyScalar(0.9 + hash01('c' + i) * 0.2);
       mesh.setColorAt(i, col);
     });
@@ -1334,14 +1334,6 @@ export class SeatView {
         if (k >= 1) this.trans = null;
       } else { cam.position.copy(pose.pos); cam.quaternion.copy(pose.q); cam.fov += (pose.fov - cam.fov) * 0.2; }
       cam.updateProjectionMatrix();
-      this.composer.render();
-      return;
-    }
-    if (this.dive && this.dive.manual && this.diveP <= 0 && this.preOrbit) {
-      // before the dive starts the camera can circle the stadium
-      const ov = this.ov, keep = ov.theta; ov.theta += this.preOrbit;
-      const pose = this._overviewPose(); ov.theta = keep;
-      cam.position.copy(pose.pos); cam.quaternion.copy(pose.q); cam.fov = pose.fov; cam.updateProjectionMatrix();
       this.composer.render();
       return;
     }
