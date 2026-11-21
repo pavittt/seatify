@@ -8,6 +8,7 @@
 // Dev-only test camera: renders the seat view for one venue/seat so it can be compared with real photos.
 // viewcam.html?venue=nms&layout=end&sec=114&row=10&seat=0.5   or  &zone=PIT&where=front
 // optional: &empty=1 &yaw=deg &pitch=deg &fov=deg (vertical) &time=night|day
+import * as THREE from 'three';
 import { VENUES } from '../js/data/venues.js';
 import { buildModel, zoneSpot, viewStats } from '../js/model.js';
 import { SeatView } from '../js/scene3d.js';
@@ -29,8 +30,19 @@ if (P.get('zone')) {
   point = { x: seat.x, y: seat.y, z: seat.z }; label = `${sec.label} row ${r.label} seat ${seat.n}`;
 }
 view.buildCrowd({ ...point, seat }, { cap: +(P.get('cap') || 30000) });
-if (P.get('empty')) view.setEmpty(true);
+if (P.get('empty')) { view.setEmpty(true); view.houseMix = 1; }
+if (P.get('time') === 'day') {
+  // daylight, to line up with daytime reference photos (test camera only)
+  const sky = new THREE.Color('#9fb8d6'); view.scene.background = sky; view.scene.fog.color = sky;
+  view.anim.push(() => { view.hemi.intensity = 2.6; view.hemi.color.set('#dfe9ff'); view.hemi.groundColor.set('#7a6a55'); view.flood.intensity = 2.4; view.flood.color.set('#fff6e8'); view.renderer.toneMappingExposure = 1.0; view.bloom.strength = 0.15; });
+}
 view.flyTo(point, { instant: true });
+if (P.get('look')) {
+  // aim at a point instead of the stage, to line up with a reference photo
+  const [lx, ly, lz] = P.get('look').split(',').map(Number);
+  const m = new THREE.Matrix4().lookAt(view.eye, new THREE.Vector3(lx, ly, lz), new THREE.Vector3(0, 1, 0));
+  view.baseQ.setFromRotationMatrix(m); view.rest.yaw = 0; view.rest.pitch = 0; view.yaw = 0; view.pitch = 0;
+}
 const d = Math.PI / 180;
 if (P.get('yaw')) view.yaw = view.rest.yaw + +P.get('yaw') * d;
 if (P.get('pitch')) view.pitch = view.rest.pitch + +P.get('pitch') * d;

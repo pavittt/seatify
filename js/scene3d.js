@@ -37,6 +37,22 @@ function merge(geoms) {
   return g;
 }
 
+// A moulded plastic stadium seat: a dished pan that curves up into a tall back, the sides of
+// both lifted like a bucket, on a short pedestal. Built as one bent sheet (double-sided).
+function bucketSeat() {
+  const prof = [[0.2, 0.43], [0.1, 0.415], [0.0, 0.41], [-0.1, 0.42], [-0.16, 0.45], [-0.19, 0.53], [-0.21, 0.63], [-0.225, 0.73], [-0.235, 0.81]];
+  const U = 7, pos = [], idx = [];
+  for (let j = 0; j < prof.length; j++) for (let i = 0; i <= U; i++) {
+    const u = i / U - 0.5, x = u * 0.44, lip = (2 * u) ** 2;
+    const [z, y] = prof[j], back = j >= 4;
+    pos.push(x, y + (back ? 0 : lip * 0.045), z + (back ? lip * 0.05 : 0));
+  }
+  for (let j = 0; j < prof.length - 1; j++) for (let i = 0; i < U; i++) { const a = j * (U + 1) + i, b = a + 1, c = a + U + 1, d = c + 1; idx.push(a, c, b, b, c, d); }
+  const sheet = new THREE.BufferGeometry(); sheet.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); sheet.setIndex(idx); sheet.computeVertexNormals();
+  const stem = new THREE.CylinderGeometry(0.035, 0.05, 0.4, 6); stem.translate(0, 0.2, -0.02);
+  return merge([sheet, stem]);
+}
+
 function sePoint(a, b, n, t) {
   const c = Math.cos(t), s = Math.sin(t), e = 2 / n;
   return [a * Math.sign(c) * Math.pow(Math.abs(c), e), b * Math.sign(s) * Math.pow(Math.abs(s), e)];
@@ -104,6 +120,8 @@ export class SeatView {
 
     this.hemi = new THREE.HemisphereLight('#7f8fc7', '#2a2228', 1.0); this.root.add(this.hemi);
     this.house = new THREE.AmbientLight('#e8eeff', 0); this.root.add(this.house);
+    // stadium floodlights, on with the house lights (Empty venue / walk-in)
+    this.flood = new THREE.DirectionalLight('#fff3df', 0); this.flood.position.set(70, 140, 50); this.root.add(this.flood);
     // the arena's working lights: a wash from high over the middle of the bowl
     this.ovLight = new THREE.PointLight('#d6e2ff', 0, 0, 0); this.ovLight.position.set(0, 70, 0); this.root.add(this.ovLight);
     const moon = new THREE.DirectionalLight('#b9c6ff', 0.45); moon.position.set(-80, 160, 120); this.root.add(moon);
@@ -147,7 +165,7 @@ export class SeatView {
     if (model.field.type === 'bowl') {
       const { a, b, n } = model.field; const shape = new THREE.Shape();
       for (let i = 0; i <= 96; i++) { const [x, z] = sePoint(a, b, n, (i / 96) * Math.PI * 2); i ? shape.lineTo(x, -z) : shape.moveTo(x, -z); }
-      const f = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: v.kind === 'arena' ? '#1a1a1d' : '#17201a' }));
+      const f = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: v.kind === 'arena' ? '#2a2a2e' : '#3f6b34' }));
       f.rotation.x = -Math.PI / 2; f.position.y = 0; this.root.add(f);
     } else {
       const { w, d } = model.field;
@@ -162,7 +180,7 @@ export class SeatView {
     }
     // floor deck and standing zones
     const fl = model.floor;
-    const deck = new THREE.Mesh(new THREE.PlaneGeometry(fl.x1 - fl.x0, fl.z1 - fl.z0), new THREE.MeshLambertMaterial({ color: '#141416' }));
+    const deck = new THREE.Mesh(new THREE.PlaneGeometry(fl.x1 - fl.x0, fl.z1 - fl.z0), new THREE.MeshLambertMaterial({ color: '#26272c' }));
     deck.rotation.x = -Math.PI / 2; deck.position.set((fl.x0 + fl.x1) / 2, 0.02, (fl.z0 + fl.z1) / 2); this.root.add(deck);
     const barrierMat = new THREE.MeshLambertMaterial({ color: '#9aa3b8' });
     for (const z of model.zones) {
@@ -283,7 +301,14 @@ export class SeatView {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.computeVertexNormals();
-    const stands = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    const standMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    // close up you see the grey concrete steps between the chairs; far away the chairs are too
+    // small to draw, so the steps take the seat colour and the stand reads the way it does in photos
+    standMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = 'varying float vCamD;\n' + sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n  vCamD = -mvPosition.z;');
+      sh.fragmentShader = 'varying float vCamD;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = mix(vec3(0.36, 0.36, 0.38), diffuseColor.rgb, smoothstep(10.0, 45.0, vCamD));');
+    };
+    const stands = new THREE.Mesh(g, standMat);
     stands.userData.label = 'Tier above';
     this.root.add(stands);
     this.blockers.push(stands);
@@ -989,12 +1014,11 @@ export class SeatView {
     this.seatIndex = new Map(); this.secSeats = new Map();
     if (!list.length) { this.seatField = null; return; }
     if (!this._fieldGeo) {
-      const back = new THREE.BoxGeometry(0.44, 0.5, 0.06); back.rotateX(-0.14); back.translate(0, 0.72, -0.18);
-      this._fieldGeo = merge([box(0.44, 0.07, 0.4, 0, 0.44, 0.02), back]);
+      this._fieldGeo = bucketSeat();
       const back2 = new THREE.BoxGeometry(0.4, 0.46, 0.04); back2.rotateX(-0.14); back2.translate(0, 0.72, -0.17);
       this._chairGeo = merge([box(0.4, 0.045, 0.36, 0, 0.43, 0.02), back2, box(0.035, 0.035, 0.3, -0.235, 0.6, -0.02), box(0.035, 0.035, 0.3, 0.235, 0.6, -0.02), box(0.035, 0.2, 0.035, -0.235, 0.5, -0.12), box(0.035, 0.2, 0.035, 0.235, 0.5, -0.12), box(0.05, 0.42, 0.05, 0, 0.21, -0.05)]);
     }
-    const fieldMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
+    const fieldMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5, metalness: 0, side: THREE.DoubleSide });
     fieldMat.onBeforeCompile = (sh) => {
       sh.uniforms.uReveal = this.reveal; sh.uniforms.uOrigin = this.revealOrigin;
       sh.vertexShader = 'uniform vec2 uOrigin;\nvarying float vDist;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vDist = distance(vec2(instanceMatrix[3][0], instanceMatrix[3][2]), uOrigin);');
@@ -1190,6 +1214,7 @@ export class SeatView {
     const ovm = this.mode === 'overview';
     if (this.hemi) this.hemi.intensity = 1.0 + ((ovm ? 3.6 : 2.2) - 1.0) * k;
     if (this.house) this.house.intensity = 0.8 * k;
+    if (this.flood) this.flood.intensity = (ovm ? 0.6 : 1.8) * k;
     if (this.crowdMat) this.crowdMat.uniforms.uLight.value = 0.6 + 0.6 * k;
     if (this.ovLight) this.ovLight.intensity = (ovm ? 3.2 : 0.6) * k;
     this.renderer.toneMappingExposure = 1.15 + 0.2 * k;
