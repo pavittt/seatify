@@ -7,12 +7,17 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CATS } from './data/venues.js';
 import { ROW_D, EYE, hash01, priceOf, fmtINR } from './model.js';
+import { createCrowdMesh } from './crowd.js';
 
 // Gig crowds dress dark: mostly black and band tees, a few whites and colours.
 const SHIRTS = ['#111114', '#141418', '#1a1a20', '#0e0f13', '#22252e', '#2b2f3a', '#1d2433', '#f1ede4', '#e9e4da', '#7d1f2a', '#2e4a7d', '#3b5e3f', '#c9a227', '#5e3a7a', '#a83a5a', '#1e1e1e'];
 const PANTS = ['#26304a', '#1b1b22', '#3a4a6b', '#5b4636', '#2f3e2f', '#44445a'];
 const SKIN = ['#8d5524', '#a0662f', '#c68642', '#b87a4b', '#e0ac69', '#7a4a26', '#d29a6a'];
 const TOY = ['#ffcf3a'];
+// long side of the frame at 1x zoom, in degrees (phone main camera)
+export const LENS_DEG = 68;
+// a phone held up at eye level by a standing fan
+const PHONE_Y = EYE + 0.13;
 const HAIR = ['#14110f', '#2b1d14', '#3d2a1c', '#5a3b25', '#1c1c1c', '#c8572e', '#6b6b6b'];
 
 function box(w, h, d, x, y, z) { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); return g; }
@@ -47,7 +52,8 @@ export class SeatView {
     this.renderer.toneMappingExposure = 1.15;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#07080f');
-    this.scene.fog = new THREE.Fog('#07080f', 160, 520);
+    // light night air: the far stand of a 230 m bowl should still be there, just a little hazy
+    this.scene.fog = new THREE.Fog('#07080f', 280, 1600);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 1500);
     // bloom makes LED walls, lenses and beams glow like they do through haze
     this.composer = new EffectComposer(this.renderer);
@@ -58,7 +64,7 @@ export class SeatView {
     this.clock = new THREE.Clock();
     this.uTime = { value: 0 };
     this.anim = [];
-    this.yaw = 0; this.pitch = 0; this.fov = 58;
+    this.yaw = 0; this.pitch = 0; this.fov = 50;
     // light-up wave across the chairs: seats within `reveal` metres of `revealOrigin` are lit
     this.reveal = { value: 1e6 }; this.revealOrigin = { value: new THREE.Vector2() };
     this.running = false;
@@ -76,7 +82,11 @@ export class SeatView {
     this.composer.setPixelRatio(pr); this.composer.setSize(w, h);
     this.bloom.resolution.set((w * pr) / 2, (h * pr) / 2);
     this.camera.aspect = w / h;
-    if (this.eye) this._frameStage();
+    if (this.eye) {
+      // keep whatever zoom the viewer chose (1x, 2x...) when the window changes shape
+      const k = this.rest ? this.rest.fov / this.fov : 1;
+      this._frameStage(); this.fov = this.rest.fov / k;
+    }
     this.camera.updateProjectionMatrix();
   }
 
@@ -87,11 +97,12 @@ export class SeatView {
     if (this.root) { this.scene.remove(this.root); this.root.traverse((o) => { o.geometry?.dispose?.(); }); }
     this.root = new THREE.Group();
     this.scene.add(this.root);
+    this.scene.fog.near = 280; this.scene.fog.far = 1600; this._fog0 = null;
     this.blockers = [];
     this.targets = [];
     this.anim = [];
 
-    this.hemi = new THREE.HemisphereLight('#7f8fc7', '#1a1420', 0.7); this.root.add(this.hemi);
+    this.hemi = new THREE.HemisphereLight('#7f8fc7', '#2a2228', 1.0); this.root.add(this.hemi);
     this.house = new THREE.AmbientLight('#e8eeff', 0); this.root.add(this.house);
     // the arena's working lights: a wash from high over the middle of the bowl
     this.ovLight = new THREE.PointLight('#d6e2ff', 0, 0, 0); this.ovLight.position.set(0, 70, 0); this.root.add(this.ovLight);
@@ -172,7 +183,8 @@ export class SeatView {
   _buildScenery(model) {
     const { w, d } = model.field; const kind = model.venue.scenery;
     if (kind === 'city') {
-      const mat = new THREE.MeshLambertMaterial({ color: '#141724' });
+      // unlit: the skyline is a dark silhouette at night, it should not catch the stage wash
+      const mat = new THREE.MeshBasicMaterial({ color: '#0d1018' });
       const winMat = new THREE.MeshBasicMaterial({ color: '#ffd98a' });
       for (let i = 0; i < 70; i++) {
         const ang = hash01('b' + i) * Math.PI * 2, R = Math.max(w, d) * 0.8 + hash01('r' + i) * 260;
@@ -200,7 +212,7 @@ export class SeatView {
     const pos = [], col = [];
     const c = new THREE.Color();
     const quad = (p1, p2, p3, p4, color) => { pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4); for (let i = 0; i < 6; i++) col.push(color.r, color.g, color.b); };
-    const ribbonPos = [];
+    const ribbonPos = [], boxQuads = [];
     for (const s of model.sections) {
       if (s.kind !== 'arc') continue;
       const base = new THREE.Color(s.closed ? '#22242e' : '#3a3f4f').lerp(new THREE.Color(CATS[s.cat].color), s.closed ? 0 : 0.18);
@@ -208,9 +220,18 @@ export class SeatView {
       for (let r = 0; r < s.rowsCount; r++) {
         const dIn = s.d0 + r * ROW_D - ROW_D / 2, dOut = dIn + ROW_D;
         const y = s.base + r * s.rake, yNext = y + s.rake;
-        c.set(s.closed ? '#121318' : '#4a4c55').multiplyScalar(r % 2 ? 0.9 : 1);
-        const riser = new THREE.Color(s.closed ? '#0d0e12' : '#2e3038');
-        const concrete = new THREE.Color(s.closed ? '#121318' : '#5d5f68');
+        // treads take the colour of the seats bolted to them (from far away a stand reads as its
+        // seat colour), risers are the darker concrete face between rows
+        // `seats` is one palette for the whole bowl, or one palette per tier
+        const sp = model.venue.bowl.seats || ['#2a3550'];
+        const pal = Array.isArray(sp[0]) ? sp[Math.min(s.tierIdx, sp.length - 1)] : sp;
+        const secIdx = model.sections.indexOf(s);
+        const mixed = model.venue.bowl.seatMix === 'random';
+        c.set(pal[(secIdx + s.tierIdx) % pal.length]).multiplyScalar((r % 2 ? 0.86 : 1) * (s.closed ? 0.45 : 1));
+        const zig = model.venue.bowl.zigzag && s.tierIdx === model.venue.bowl.zigzag.tier ? new THREE.Color(model.venue.bowl.zigzag.color) : null;
+        const cZig = zig && zig.clone().multiplyScalar((r % 2 ? 0.86 : 1) * (s.closed ? 0.45 : 1));
+        const riser = new THREE.Color('#55565c').multiplyScalar(s.closed ? 0.5 : 1);
+        const concrete = new THREE.Color('#8a8b90').multiplyScalar(s.closed ? 0.5 : 1);
         const seatCol = new THREE.Color(s.closed ? '#121318' : '#262a36').lerp(new THREE.Color(CATS[s.cat].color), 0.22);
         const seatTop = seatCol.clone().multiplyScalar(1.25);
         for (let i = 0; i < M; i++) {
@@ -218,7 +239,14 @@ export class SeatView {
           const A = sePoint(a + dIn, b + dIn, n, ta), B = sePoint(a + dIn, b + dIn, n, tb);
           const C = sePoint(a + dOut, b + dOut, n, tb), D = sePoint(a + dOut, b + dOut, n, ta);
           const aisle = i === 0;
-          quad([A[0], y, A[1]], [B[0], y, B[1]], [C[0], y, C[1]], [D[0], y, D[1]], aisle ? concrete : c);
+          let tc = c;
+          if (mixed) tc = new THREE.Color(pal[Math.floor(hash01('m' + secIdx + r + i) * pal.length)]).multiplyScalar((r % 2 ? 0.86 : 1) * (s.closed ? 0.45 : 1));
+          if (zig) {
+            // the big chevrons picked out in the seats, as in the Motera upper tier
+            const u = (secIdx % 36) * M + i, P = 30, tri = Math.abs((u % P) - P / 2) / (P / 2);
+            if (Math.abs(r - (4 + tri * (s.rowsCount - 10))) < 2.2) tc = cZig;
+          }
+          quad([A[0], y, A[1]], [B[0], y, B[1]], [C[0], y, C[1]], [D[0], y, D[1]], aisle ? concrete : tc);
           if (!aisle && !s.closed && this.lowDetail) {
             // a row of plastic seat backs near the back of each tread
             const P = [A[0] + (D[0] - A[0]) * 0.7, A[1] + (D[1] - A[1]) * 0.7], Q = [B[0] + (C[0] - B[0]) * 0.7, B[1] + (C[1] - B[1]) * 0.7];
@@ -232,11 +260,21 @@ export class SeatView {
             const fc = new THREE.Color('#15161d');
             quad([A[0], yb, A[1]], [B[0], yb, B[1]], [B[0], y, B[1]], [A[0], y, A[1]], fc);
             ribbonPos.push([A, B, y - 0.75, s.closed]);
+            if (s.tierIdx > 0) {
+              // the box / concourse level under the overhang: a band of lit glass behind the lower tier
+              const below = model.tierInfo[s.tierIdx - 1];
+              const dB = below.dEnd + ROW_D * 1.5, y0 = below.top + 0.6, y1 = Math.min(s.base - 1.6, y0 + 4.2);
+              if (y1 > y0 + 1) {
+                const P1 = sePoint(a + dB, b + dB, n, ta), P2 = sePoint(a + dB, b + dB, n, tb);
+                const lit = i % 3 === 1 ? 0.25 : 0.85 + hash01('bx' + secIdx + i) * 0.3;
+                boxQuads.push([[P1[0], y0, P1[1]], [P2[0], y0, P2[1]], [P2[0], y1, P2[1]], [P1[0], y1, P1[1]], s.closed ? 0.05 : lit]);
+              }
+            }
           }
           if (s.tierIdx > 0 && r === s.rowsCount - 1) {
             // underside of an overhanging tier, from the fascia back to the top row
             const A0 = sePoint(a + s.d0 - ROW_D / 2, b + s.d0 - ROW_D / 2, n, ta), B0 = sePoint(a + s.d0 - ROW_D / 2, b + s.d0 - ROW_D / 2, n, tb);
-            quad([A0[0], s.base - 1.3, A0[1]], [B0[0], s.base - 1.3, B0[1]], [C[0], top - 3, C[1]], [D[0], top - 3, D[1]], new THREE.Color('#101118'));
+            quad([A0[0], s.base - 1.3, A0[1]], [B0[0], s.base - 1.3, B0[1]], [C[0], top - 3, C[1]], [D[0], top - 3, D[1]], new THREE.Color('#4a4b52'));
           }
         }
       }
@@ -250,6 +288,12 @@ export class SeatView {
     this.root.add(stands);
     this.blockers.push(stands);
 
+    if (boxQuads.length) {
+      const bp = [], bc = [], warm = new THREE.Color('#ffcf94');
+      for (const [p1, p2, p3, p4, k] of boxQuads) { bp.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4); for (let i = 0; i < 6; i++) bc.push(warm.r * k * 0.55, warm.g * k * 0.55, warm.b * k * 0.55); }
+      const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3)); bg.setAttribute('color', new THREE.Float32BufferAttribute(bc, 3));
+      this.root.add(new THREE.Mesh(bg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+    }
     // LED ribbon boards on each tier fascia
     const rp = [], rc = [];
     for (const [A, B, y, closed] of ribbonPos) {
@@ -261,37 +305,96 @@ export class SeatView {
     const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3)); rg.setAttribute('color', new THREE.Float32BufferAttribute(rc, 3));
     const ribbonMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false });
     this.root.add(new THREE.Mesh(rg, ribbonMat));
-    this.anim.push((t) => ribbonMat.color.setHSL((t * 0.08) % 1, 0.8, 0.5));
+    // fascia boards are dimmed for a show, not a rainbow
+    ribbonMat.color.setRGB(0.32, 0.34, 0.4);
     this._buildPriceBoards(model);
 
     const last = model.tierInfo[model.tierInfo.length - 1];
     const v = model.venue;
-    if (v.bowl.roof) {
-      const R = v.bowl.roof; const dOut = last.dEnd + 2, dIn = last.dEnd - R.inset; const y = last.top + R.lift;
-      const from = ((R.from ?? -180) * Math.PI) / 180, to = ((R.to ?? 180) * Math.PI) / 180;
-      const rp2 = []; const M = 120;
-      for (let i = 0; i < M; i++) {
-        const ta = from + ((to - from) * i) / M, tb = from + ((to - from) * (i + 1)) / M;
-        const A = sePoint(a + dIn, b + dIn, n, ta), B = sePoint(a + dIn, b + dIn, n, tb), C = sePoint(a + dOut, b + dOut, n, tb), D = sePoint(a + dOut, b + dOut, n, ta);
-        rp2.push(A[0], y, A[1], B[0], y, B[1], C[0], y + 3, C[1], A[0], y, A[1], C[0], y + 3, C[1], D[0], y + 3, D[1]);
-      }
-      const roofG = new THREE.BufferGeometry(); roofG.setAttribute('position', new THREE.Float32BufferAttribute(rp2, 3)); roofG.computeVertexNormals();
-      const roof = new THREE.Mesh(roofG, new THREE.MeshLambertMaterial({ color: '#2a2d3a', side: THREE.DoubleSide, transparent: true, opacity: 0.92 }));
-      roof.userData.label = 'Roof edge';
-      this.root.add(roof); this.blockers.push(roof);
-      // roof edge light strip
-      const edge = []; for (let i = 0; i <= M; i++) { const t = from + ((to - from) * i) / M; const P = sePoint(a + dIn, b + dIn, n, t); edge.push(new THREE.Vector3(P[0], y - 0.2, P[1])); }
-      this.root.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(edge), new THREE.LineBasicMaterial({ color: '#8fb3ff' })));
-    }
+    if (v.bowl.roof) this._buildRoof(model, last);
+    if (v.bowl.track) this._buildTrack(model);
     if (v.bowl.dome) {
       const R = a + last.dEnd + 3, Rz = b + last.dEnd + 3;
       const dome = new THREE.Mesh(new THREE.SphereGeometry(1, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: '#171a26', side: THREE.BackSide }));
       dome.scale.set(R, last.top + 18, Rz); this.root.add(dome);
       const ribs = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)), new THREE.LineBasicMaterial({ color: '#2b3150' }));
       ribs.scale.copy(dome.scale).multiplyScalar(0.995); this.root.add(ribs);
-      this.scene.fog.near = 80;
-    } else this.scene.fog.near = 160;
+      this.scene.fog.near = 120; this.scene.fog.far = 700;
+    } else { this.scene.fog.near = 280; this.scene.fog.far = 1600; }
     this._fog0 = { near: this.scene.fog.near, far: this.scene.fog.far };
+  }
+
+  // Stadium roofs from the venue spec: a canopy from the inner edge (d, y) out past the top row
+  // (yOut), optionally only over some stands (spans, in degrees round the bowl), split into
+  // gull-wing panels (DY Patil), folded into membrane ridges (JLN) or lit by an LED ring (NMS).
+  _buildRoof(model, last) {
+    const { a, b, n } = model.field, R = model.venue.bowl.roof;
+    const dIn = R.d, dOut = last.dEnd + 3, yIn = R.y, yOut = R.yOut ?? R.y;
+    const spans = (R.spans || [[-180, 180]]).map(([f, t]) => [(f * Math.PI) / 180, (t * Math.PI) / 180]);
+    const pos = [], edge = [], M = 180;
+    const P = (d, t, y) => { const q = sePoint(a + d, b + d, n, t); return [q[0], y, q[1]]; };
+    for (const [from, to] of spans) {
+      const steps = Math.max(8, Math.round((M * (to - from)) / (2 * Math.PI)));
+      for (let i = 0; i < steps; i++) {
+        const ta = from + ((to - from) * i) / steps, tb = from + ((to - from) * (i + 1)) / steps;
+        if (R.gullWing) {
+          // separate canopy panels with a gap between them, each lifted at the front edge
+          const panel = 14, k = i % panel;
+          if (k === panel - 1) continue;
+        }
+        // membrane: alternate ridge and valley lines round the ring
+        const fold = R.membrane ? (i % 2 ? -1.4 : 1.4) : 0;
+        const A = P(dIn, ta, yIn + (R.membrane ? -fold : 0)), B = P(dIn, tb, yIn + fold), C = P(dOut, tb, yOut + fold * 0.3), D = P(dOut, ta, yOut - fold * 0.3);
+        pos.push(...A, ...B, ...C, ...A, ...C, ...D);
+        edge.push(new THREE.Vector3(A[0], A[1] - 0.3, A[2]), new THREE.Vector3(B[0], B[1] - 0.3, B[2]));
+      }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
+    const roof = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: R.color || '#c9ccd2', side: THREE.DoubleSide, emissive: new THREE.Color(R.color || '#c9ccd2').multiplyScalar(0.05) }));
+    roof.userData.label = 'Roof';
+    this.root.add(roof); this.blockers.push(roof);
+    // the outer wall of the bowl up to the roof, so the stadium reads as closed from inside
+    const wall = [];
+    for (let i = 0; i < M; i++) {
+      const ta = -Math.PI + (2 * Math.PI * i) / M, tb = -Math.PI + (2 * Math.PI * (i + 1)) / M;
+      const inSpan = spans.some(([f, t]) => ta >= f - 1e-6 && tb <= t + 1e-6);
+      const top = inSpan ? yOut : last.top + 2.5;
+      const A = P(dOut, ta, last.top), B = P(dOut, tb, last.top), C = P(dOut, tb, top), D = P(dOut, ta, top);
+      wall.push(...A, ...B, ...C, ...A, ...C, ...D);
+    }
+    const wg = new THREE.BufferGeometry(); wg.setAttribute('position', new THREE.Float32BufferAttribute(wall, 3)); wg.computeVertexNormals();
+    this.root.add(new THREE.Mesh(wg, new THREE.MeshLambertMaterial({ color: '#3a3c44', side: THREE.DoubleSide })));
+    // roof edge: a lit LED ring (NMS), white edge trim, or floodlight banks (Salt Lake)
+    const edgeMat = new THREE.LineBasicMaterial({ color: R.ledRing ? new THREE.Color('#ffd8a8').multiplyScalar(1.6) : '#cfd6e6', toneMapped: !R.ledRing });
+    this.root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(edge), edgeMat));
+    if (R.ledRing) this.anim.push((t) => edgeMat.color.setHSL((0.08 + t * 0.03) % 1, 0.9, 0.62));
+    if (R.floodlights || R.membrane) {
+      // banks of floodlights hung under the roof edge, switched off for the show but visible
+      const bank = new THREE.BoxGeometry(4.5, 1.2, 0.8);
+      const mat = new THREE.MeshLambertMaterial({ color: '#2a2c33', emissive: new THREE.Color('#1c1e26') });
+      const N = 40; const im = new THREE.InstancedMesh(bank, mat, N); const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
+      for (let i = 0; i < N; i++) {
+        const t = (i / N) * Math.PI * 2; const [x, y, z] = P(dIn + 1.5, t, yIn - 1.4);
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-x, -z)); m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(1, 1, 1)); im.setMatrixAt(i, m4);
+      }
+      this.root.add(im);
+    }
+    if (R.membrane) {
+      // the ring of white masts and the colonnade that carry the JLN roof
+      const mast = new THREE.CylinderGeometry(0.5, 0.7, 1, 6);
+      const N = 48; const im = new THREE.InstancedMesh(mast, new THREE.MeshLambertMaterial({ color: '#e9ecef' }), N); const m4 = new THREE.Matrix4();
+      for (let i = 0; i < N; i++) { const t = (i / N) * Math.PI * 2; const [x, , z] = P(dOut + 6, t, 0); m4.compose(new THREE.Vector3(x, (yOut + 10) / 2, z), new THREE.Quaternion(), new THREE.Vector3(1, yOut + 10, 1)); im.setMatrixAt(i, m4); }
+      this.root.add(im);
+    }
+  }
+
+  // red athletics track round the infield (JLN, Salt Lake, Gachibowli)
+  _buildTrack(model) {
+    const { a, b, n } = model.field, shape = new THREE.Shape(), hole = new THREE.Path();
+    const pts = (k, path) => { for (let i = 0; i <= 120; i++) { const [x, z] = sePoint(a - k, b - k, n, (i / 120) * Math.PI * 2); i ? path.lineTo(x, -z) : path.moveTo(x, -z); } };
+    pts(0, shape); pts(13, hole); shape.holes.push(hole);
+    const m = new THREE.Mesh(new THREE.ShapeGeometry(shape, 1), new THREE.MeshLambertMaterial({ color: '#8f3a2a' }));
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.01; this.root.add(m);
   }
 
   _buildStands(model) {
@@ -545,7 +648,7 @@ export class SeatView {
       const bar = new THREE.Mesh(new THREE.BoxGeometry(st.w + 6, 1.2, 0.5), new THREE.MeshLambertMaterial({ color: '#6c7280' })); bar.position.set(0, 0.6, st.zFront + 2.6); root.add(bar);
 
       // roof structure: four towers, front and back truss beams, cross beams
-      const roofY = st.screenY + st.screenH + (arena ? 2.5 : 4.5);
+      const roofY = st.trim ?? st.screenY + st.screenH + (arena ? 2.5 : 4.5);
       const hw = st.w / 2 + (arena ? 1.5 : 3);
       const zF = st.zFront - 0.6, zB = st.zBack - 1;
       for (const sx of [-1, 1]) for (const z of [zF, zB]) this._truss([sx * hw, 0, z], [sx * hw, roofY, z], 0.75, trussGeoms);
@@ -555,7 +658,7 @@ export class SeatView {
       const canopy = new THREE.Mesh(new THREE.PlaneGeometry(hw * 2 + 3, zF - zB + 4), new THREE.MeshLambertMaterial({ color: '#0d0e13', side: THREE.DoubleSide }));
       canopy.rotation.x = -Math.PI / 2; canopy.position.set(0, roofY + 1.6, (zF + zB) / 2); root.add(canopy);
       // wings for PA and side screens
-      const wingX = hw + (arena ? 4 : 9);
+      const wingX = hw + (st.wings ?? (arena ? 4 : 9));
       for (const sx of [-1, 1]) {
         this._truss([sx * hw, roofY - 0.4, zF + 1], [sx * wingX, roofY - 0.4, zF + 1], 0.45, trussGeoms);
         this._truss([sx * wingX, 0, zF + 1], [sx * wingX, roofY - 0.4, zF + 1], 0.55, trussGeoms);
@@ -596,7 +699,7 @@ export class SeatView {
         col.position.set(sx * (st.screenW / 2 + 2 + i * (cw + (arena ? 1 : 2.4))), ch / 2 + 1, st.zBack + 0.5 + i * 0.8); root.add(col);
       }
       // IMAG side screens flown from the wings, angled toward the crowd
-      const sw = arena ? 7 : 14, sh = sw * 0.5625;
+      const sw = arena ? 6 : 12, sh = sw * 0.5625;
       const camTex = this._screenTexture(sw, sh, 'cam');
       for (const sx of [-1, 1]) {
         const g = new THREE.Group();
@@ -683,11 +786,14 @@ export class SeatView {
         plat.userData.label = roof.userData.label = 'Sound desk';
         this.blockers.push(plat, roof);
       } else {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(o.w, o.h, o.d), new THREE.MeshLambertMaterial({ color: '#3a3f52' }));
-        m.position.set(o.x, o.h / 2, o.z); this.root.add(m);
-        const spk = new THREE.Mesh(new THREE.BoxGeometry(1.4, 5, 1.4), new THREE.MeshLambertMaterial({ color: '#0b0b10' })); spk.position.set(o.x, o.h + 2, o.z); this.root.add(spk);
-        m.userData.label = spk.userData.label = 'Delay speaker tower';
-        this.blockers.push(m, spk);
+        // a delay tower is a slim truss mast on a ballast base with a short line array at the top
+        const g2 = [], h = o.h * 0.75;
+        for (const [dx, dz] of [[-0.3, -0.3], [0.3, -0.3], [-0.3, 0.3], [0.3, 0.3]]) this._truss([o.x + dx, 0, o.z + dz], [o.x + dx, h, o.z + dz], 0.18, g2);
+        this._addMerged(g2, new THREE.MeshLambertMaterial({ color: '#7c818c' }), 'Delay speaker tower');
+        const base = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1, 2.4), new THREE.MeshLambertMaterial({ color: '#1c1d22' })); base.position.set(o.x, 0.5, o.z); this.root.add(base);
+        this._lineArray(o.x, h + 0.2, o.z + 0.6, 0, 8, 'Delay speaker tower');
+        base.userData.label = 'Delay speaker tower';
+        this.blockers.push(base);
       }
     }
   }
@@ -702,10 +808,12 @@ export class SeatView {
     const armDown = (sx) => shape(new THREE.CapsuleGeometry(0.048, 0.5, 1, 4), { x: sx * 0.235, y: 1.1, rz: sx * 0.12 });
     const armUp = (sx) => shape(new THREE.CapsuleGeometry(0.048, 0.52, 1, 4), { x: sx * 0.24, y: 1.62, z: 0.05, rz: -sx * 0.2, rx: -0.15 });
     const body = merge([torso(), armDown(-1), armDown(1)]);
-    const bodyUp = merge([torso(), armUp(-1), armUp(1)]);
+    // raised arms are their own mesh so they can be skin-coloured (bare forearms holding phones)
+    const bodyUp = merge([torso(), shape(new THREE.CapsuleGeometry(0.05, 0.16, 1, 4), { x: -0.235, y: 1.36, rz: 0.25 }), shape(new THREE.CapsuleGeometry(0.05, 0.16, 1, 4), { x: 0.235, y: 1.36, rz: -0.25 })]);
+    const armsUp = merge([armUp(-1), armUp(1)]);
     const head = shape(new THREE.SphereGeometry(0.105, 8, 6), { y: 1.6, sx: 0.88, sy: 1.15 });
     const hair = shape(new THREE.SphereGeometry(0.112, 8, 4, 0, Math.PI * 2, 0, Math.PI * 0.52), { y: 1.62, z: -0.012, sx: 0.9, sy: 1.08 });
-    this._pg = { legs, body, bodyUp, head, hair };
+    this._pg = { legs, body, bodyUp, armsUp, head, hair };
     return this._pg;
   }
 
@@ -727,7 +835,7 @@ export class SeatView {
     const model = this.model;
     if (this.crowd) { this.root.remove(this.crowd); this.crowd.traverse((o) => o.dispose?.()); }
     const coarse = matchMedia('(pointer: coarse)').matches;
-    const cap = opts.cap || (coarse ? 16000 : 38000);
+    const cap = opts.cap || (coarse ? 30000 : 90000);
     const spots = [];
     const st = model.stage;
     const target = st.type === 'center' ? [st.x, st.z] : [0, st.zBack + st.d];
@@ -778,43 +886,46 @@ export class SeatView {
       }
     }
 
+    // In a stadium the promoter sells the whole field, so fill the outfield round the ticketed
+    // zones with standing fans up to a few metres from the stands, the way it looks on the night.
+    if (model.field.type === 'bowl' && st.type === 'end') {
+      const { a, b, n } = model.field, inZone = (x, z) => model.zones.some((zn) => zn.rect && x > zn.rect.x0 && x < zn.rect.x1 && z > zn.rect.z0 && z < zn.rect.z1);
+      const margin = model.venue.bowl.track ? 14 : 6;
+      for (let x = -a; x < a; x += 1.15) for (let z = st.zFront + 4; z < b; z += 1.15) {
+        const jx = x + (hash01('X' + x + z) - 0.5) * 0.7, jz = z + (hash01('Z' + x + z) - 0.5) * 0.7;
+        if (Math.pow(Math.abs(jx) / (a - margin), n) + Math.pow(Math.abs(jz) / (b - margin), n) > 1) continue;
+        if (inZone(jx, jz) || blocked(jx, jz)) continue;
+        if (focus && Math.hypot(jx - focus.x, jz - focus.z) < 2) continue;
+        const isNear = near(jx, jz) && focus.y < 1;
+        if (hash01('F' + jx.toFixed(2) + jz.toFixed(2)) < (isNear ? 0.7 : 0.7 * keep)) spots.push([jx, 0, jz]);
+      }
+    }
     const N = spots.length;
-    const G = this._personGeoms();
     const group = new THREE.Group();
-    const upIdx = [], downIdx = [];
-    for (let i = 0; i < N; i++) (hash01('u' + i) < 0.28 ? upIdx : downIdx).push(i);
-    const mk = (geo, color, count) => { const m = new THREE.InstancedMesh(geo, this._crowdMaterial(color), Math.max(1, count)); m.count = count; m.frustumCulled = false; group.add(m); return m; };
-    const legs = mk(G.legs, '#ffffff', N), head = mk(G.head, '#ffffff', N), hair = mk(G.hair, '#ffffff', N);
-    const bodyDown = mk(G.body, '#ffffff', downIdx.length), bodyUp = mk(G.bodyUp, '#ffffff', upIdx.length);
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), sc = new THREE.Vector3(1, 1, 1);
-    const col = new THREE.Color();
-    const isUp = new Uint8Array(N); upIdx.forEach((i) => (isUp[i] = 1));
-    let di = 0, ui = 0;
-    const phones = [];
-    this._headColors = [];
+    // painted people (see crowd.js); a few phone lights as sparkle across the far stands
+    const people = [], phones = [];
+    const stageX = target[0], stageZ = target[1];
     for (let i = 0; i < N; i++) {
       const [x, y, z] = spots[i];
       const yaw = Math.atan2(target[0] - x, target[1] - z) + (hash01('y' + i) - 0.5) * 0.5;
-      q.setFromAxisAngle(up, yaw); p.set(x, y, z);
-      const s = 0.93 + hash01('h' + i) * 0.13, wide = 0.9 + hash01('w' + i) * 0.24; sc.set(s * wide, s, s * wide);
-      m4.compose(p, q, sc);
-      legs.setMatrixAt(i, m4); head.setMatrixAt(i, m4); hair.setMatrixAt(i, m4);
-      legs.setColorAt(i, col.set(PANTS[Math.floor(hash01('pa' + i) * PANTS.length)]));
-      const skin = SKIN[Math.floor(hash01('sk' + i) * SKIN.length)];
-      this._headColors.push(skin);
-      head.setColorAt(i, col.set(this.toyHeads ? TOY[0] : skin));
-      hair.setColorAt(i, col.set(HAIR[Math.floor(hash01('ha' + i) * HAIR.length)]));
-      const shirt = col.set(SHIRTS[Math.floor(hash01('sh' + i) * SHIRTS.length)]);
-      if (isUp[i]) {
-        bodyUp.setMatrixAt(ui, m4); bodyUp.setColorAt(ui++, shirt);
-        if (hash01('ph' + i) < 0.4 && !(focus && Math.hypot(x - focus.x, z - focus.z) < 4)) { const fwd = 0.1; phones.push(x + Math.sin(yaw) * fwd + Math.cos(yaw) * 0.3 * s, y + 1.95 * s, z + Math.cos(yaw) * fwd - Math.sin(yaw) * 0.3 * s); }
-      } else { bodyDown.setMatrixAt(di, m4); bodyDown.setColorAt(di++, shirt); }
+      const dStage = Math.hypot(x - stageX, z - stageZ);
+      const close = focus && Math.hypot(x - focus.x, z - focus.z) < 3;
+      let variant = Math.floor(hash01('v' + i) * 16);
+      // nobody right next to you holds a phone up in your face
+      if (close && [1, 2, 3, 5, 6].includes(variant % 8)) variant = (variant & ~7) | 0;
+      const scale = (0.86 + hash01('h' + i) * 0.14);
+      // people near the stage catch more of the wash
+      const light = 0.55 + 0.6 * Math.max(0, 1 - dStage / 90) + hash01('l' + i) * 0.25;
+      people.push({ x, y, z, yaw, scale, light, variant });
+      const far = !focus || Math.hypot(x - focus.x, z - focus.z) > 30;
+      if (far && hash01('ph' + i) < 0.22) phones.push(x, y + 1.9 * scale, z);
     }
-    for (const m of group.children) { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
-    this.headMesh = head;
+    const mesh = createCrowdMesh(people, { uTime: this.uTime, fog: this.scene.fog });
+    this.crowdMat = mesh.material;
+    group.add(mesh);
     if (phones.length) {
       const pg = new THREE.BufferGeometry(); pg.setAttribute('position', new THREE.Float32BufferAttribute(phones, 3));
-      const pm = new THREE.PointsMaterial({ color: new THREE.Color('#fff6d8').multiplyScalar(2.5), toneMapped: false, size: 0.2, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
+      const pm = new THREE.PointsMaterial({ color: new THREE.Color('#fff6d8').multiplyScalar(2.2), toneMapped: false, size: 0.12, sizeAttenuation: true, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
       group.add(new THREE.Points(pg, pm));
     }
     group.visible = !this.empty;
@@ -915,8 +1026,35 @@ export class SeatView {
 
   // colours every chair: free = blue, taken = dark slate; the hovered block and the price
   // filter light up, everything else dims
+  // The colour the seat really is (from photos), used whenever you are in a seat. The overview map
+  // repaints the same chairs blue/dark to show what is free.
+  _realSeatColor(sec, r, frac) {
+    const bowl = this.model.venue.bowl;
+    if (!bowl) return new THREE.Color('#1d4596').lerp(new THREE.Color(CATS[sec.cat].color), 0.16);
+    const sp = bowl.seats || ['#2a3550'];
+    const pal = Array.isArray(sp[0]) ? sp[Math.min(sec.tierIdx, sp.length - 1)] : sp;
+    const secIdx = this.model.sections.indexOf(sec);
+    const c = new THREE.Color(bowl.seatMix === 'random' ? pal[Math.floor(hash01('s' + secIdx + r.index + frac) * pal.length)] : pal[(secIdx + sec.tierIdx) % pal.length]);
+    const zz = bowl.zigzag;
+    if (zz && sec.tierIdx === zz.tier) {
+      const u = (secIdx % 36) * 12 + Math.floor(frac * 12), P = 30, tri = Math.abs((u % P) - P / 2) / (P / 2);
+      if (Math.abs(r.index - (4 + tri * (sec.rowsCount - 10))) < 2.2) c.set(zz.color);
+    }
+    return c;
+  }
+
   _paintSeats() {
     const mesh = this.seatField; if (!mesh) return;
+    this._paintedMode = this.mode;
+    if (this.mode !== 'overview') {
+      const col = new THREE.Color();
+      this._seatList.forEach(([seat, sec, r], i) => {
+        col.copy(this._realSeatColor(sec, r, (seat.n - 0.5) / r.seats.length)).multiplyScalar(0.85 + hash01('c' + i) * 0.25);
+        mesh.setColorAt(i, col);
+      });
+      mesh.instanceColor.needsUpdate = true;
+      return;
+    }
     const free = new THREE.Color('#3a74ff'), taken = new THREE.Color('#1f2b52'), lit = new THREE.Color('#c6ff3d'), litTaken = new THREE.Color('#4d5a2a');
     const dimFree = new THREE.Color('#16295c');
     const col = new THREE.Color();
@@ -1050,8 +1188,9 @@ export class SeatView {
   _applyHouse() {
     const k = this.houseMix ?? 0;
     const ovm = this.mode === 'overview';
-    if (this.hemi) this.hemi.intensity = 0.7 + ((ovm ? 3.6 : 2.2) - 0.7) * k;
+    if (this.hemi) this.hemi.intensity = 1.0 + ((ovm ? 3.6 : 2.2) - 1.0) * k;
     if (this.house) this.house.intensity = 0.8 * k;
+    if (this.crowdMat) this.crowdMat.uniforms.uLight.value = 0.6 + 0.6 * k;
     if (this.ovLight) this.ovLight.intensity = (ovm ? 3.2 : 0.6) * k;
     this.renderer.toneMappingExposure = 1.15 + 0.2 * k;
     if (this.bloom) this.bloom.strength = 0.85 - 0.45 * k;
@@ -1170,7 +1309,7 @@ export class SeatView {
   // ---------- camera ----------
   flyTo(point, { instant = false } = {}) {
     this.lastPoint = point;
-    const eye = new THREE.Vector3(point.x, point.y + (this.empty && point.y > 0.5 ? 1.18 : EYE), point.z);
+    const eye = new THREE.Vector3(point.x, point.y + (this.empty && point.y > 0.5 ? 1.18 : PHONE_Y), point.z);
     this.eye = eye;
     const look = this.stageFocus.clone();
     const endQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, look, new THREE.Vector3(0, 1, 0)));
@@ -1238,7 +1377,7 @@ export class SeatView {
       if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, [e.clientX, e.clientY]);
       if (pts.size === 2) {
         const [a, b] = [...pts.values()]; const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (pinch) { if (this.mode === 'overview') this.ovGoal.zoom = Math.max(0.35, Math.min(1.5, this.ovGoal.zoom * (pinch / d))); else this.fov = Math.max(14, Math.min(75, this.fov * (pinch / d))); }
+        if (pinch) { if (this.mode === 'overview') this.ovGoal.zoom = Math.max(0.35, Math.min(1.5, this.ovGoal.zoom * (pinch / d))); else this.zoom(pinch / d); }
         pinch = d; return;
       }
       if (!drag) return;
@@ -1272,17 +1411,28 @@ export class SeatView {
         if (g.zoom > 0.95) g.target = g.target.clone().lerp(new THREE.Vector3(0, 0, this.model.stage.type === 'center' ? this.model.stage.z : 0), 0.2);
         return;
       }
-      this.fov = Math.max(14, Math.min(75, this.fov * Math.exp(e.deltaY * 0.001)));
+      this.zoom(Math.exp(e.deltaY * 0.001));
     }, { passive: false });
   }
 
   scrub(p) { this.scrubP = p; this.fly = null; }
 
-  zoom(f) { this.fov = Math.max(14, Math.min(75, this.fov * f)); }
+  zoom(f) { this.fov = Math.max(8, Math.min(this.rest ? this.rest.fov * 1.12 : 75, this.fov * f)); }
+  // 1 = the phone's 1x lens, 2 = 2x and so on
+  get zoomLevel() { return this.rest ? Math.tan(THREE.MathUtils.degToRad(this.rest.fov) / 2) / Math.tan(THREE.MathUtils.degToRad(this.fov) / 2) : 1; }
   recentre() { this.yaw = this.rest.yaw; this.pitch = this.rest.pitch; this.fov = this.rest.fov; }
 
-  // Aim and zoom so the whole stage (deck to top of the main screen) sits in the upper-middle of
-  // the frame from any seat: far seats get a longer lens, close seats a wider one.
+  // A phone camera at 1x: the long side of the frame spans about 68 degrees (a 26 mm-equivalent
+  // main camera), the same lens fans use for the photos and reels people compare seats with.
+  // The lens never zooms itself, so a far seat really looks far. Zoom is the 2x/3x buttons.
+  lensFov(aspect = this.camera.aspect || 1) {
+    const LONG = THREE.MathUtils.degToRad(LENS_DEG);
+    const v = aspect >= 1 ? 2 * Math.atan(Math.tan(LONG / 2) / aspect) : LONG;
+    return THREE.MathUtils.radToDeg(v);
+  }
+
+  // Point the camera at the stage the way a person does: turn to face it and tilt so the deck
+  // and the screens sit a little above the middle of the frame. No zoom.
   _frameStage() {
     const eye = this.eye, aspect = this.camera.aspect || 1;
     const inv = new THREE.Matrix4().compose(eye, this.baseQ, new THREE.Vector3(1, 1, 1)).invert();
@@ -1292,17 +1442,17 @@ export class SeatView {
       const h = Math.atan2(c.x, -c.z), v = Math.atan2(c.y, -c.z);
       h0 = Math.min(h0, h); h1 = Math.max(h1, h); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
     }
-    if (!isFinite(h0)) { this.rest = { yaw: 0, pitch: 0, fov: 58 }; return; }
-    const hHalf = (h1 - h0) / 2, vHalf = (v1 - v0) / 2;
-    // stage should fill ~62% of the width (wide screens) and leave room for the sheet on phones
-    const fill = aspect < 0.9 ? 0.92 : 0.62;
-    const needV = Math.max(vHalf / 0.55, Math.atan(Math.tan(hHalf / fill) / aspect));
-    const fov = Math.max(14, Math.min(64, THREE.MathUtils.radToDeg(needV * 2)));
-    // place the stage a little above centre (the bottom sheet covers the lower part on phones)
-    const lift = THREE.MathUtils.degToRad(fov) * (aspect < 0.9 ? 0.16 : 0.06);
-    this.rest = { yaw: -(h0 + h1) / 2, pitch: (v0 + v1) / 2 - lift, fov };
-    // empty venue: a wide, slightly lowered view that takes in the seats around you as well as the stage
-    if (this.empty) this.rest = { yaw: this.rest.yaw, pitch: this.rest.pitch - THREE.MathUtils.degToRad(7), fov: Math.max(fov * 1.6, 62) };
+    const fov = this.lensFov(aspect);
+    if (!isFinite(h0)) { this.rest = { yaw: 0, pitch: 0, fov }; return; }
+    const vf = THREE.MathUtils.degToRad(fov);
+    // phones: the bottom sheet covers the lower part of the frame, so keep the stage higher
+    const lift = vf * (aspect < 0.9 ? 0.16 : 0.08);
+    let pitch = (v0 + v1) / 2 - lift;
+    // never tilt so far that the top of the stage roof leaves the frame
+    pitch = Math.max(pitch, v1 - vf * 0.45);
+    this.rest = { yaw: -(h0 + h1) / 2, pitch, fov };
+    // empty venue: tilt down a touch so the seats around you are in the frame too
+    if (this.empty) this.rest.pitch -= THREE.MathUtils.degToRad(5);
   }
 
   start() { if (this.running) return; this.running = true; this.resize(); const loop = () => { if (!this.running) return; this._frame(); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }
@@ -1310,6 +1460,7 @@ export class SeatView {
 
   _frame() {
     if (!this.baseQ && this.mode !== 'overview') return;
+    if (this.seatField && this._paintedMode !== this.mode) this._paintSeats();
     const t = this.clock.getElapsedTime();
     this.uTime.value = t;
     for (const f of this.anim) f(t);

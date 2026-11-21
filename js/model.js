@@ -3,7 +3,7 @@
 import { CATS } from './data/venues.js';
 
 export const SEAT_W = 0.55;
-export const ROW_D = 0.85;
+export const ROW_D = 0.8; // stadium row pitch, front of one row to the next
 export const EYE = 1.62; // eye height of a standing person, metres
 
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'.split('');
