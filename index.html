@@ -225,9 +225,27 @@
   <div class="view-loading mono" id="view-loading">Filling the venue…</div>
   <div class="vf vf-view" aria-hidden="true"><i class="vf-c tl"></i><i class="vf-c tr"></i><i class="vf-c bl"></i><i class="vf-c br"></i></div>
   <div class="view-top">
-    <button class="icon-btn glass" type="button" id="view-back" aria-label="Back to the seat map">←</button>
-    <div class="pill mono" id="view-pill"></div>
+    <button class="icon-btn glass" type="button" id="view-back" aria-label="Back">←</button>
+    <div class="m3-head">
+      <div class="eyebrow mono" id="m3-sub"></div>
+      <h2 id="m3-title"></h2>
+    </div>
+    <div class="seat-nav">
+      <button class="icon-btn glass seat-step" type="button" id="seat-prev" aria-label="Previous free seat">‹</button>
+      <div class="pill mono" id="view-pill"></div>
+      <button class="icon-btn glass seat-step" type="button" id="seat-next" aria-label="Next free seat">›</button>
+    </div>
   </div>
+  <div class="m3-bar">
+    <div class="segs m3-layouts" id="m3-layouts" hidden></div>
+    <div class="pchips m3-chips" id="m3-chips"></div>
+  </div>
+  <div class="m3-tip" id="m3-tip" hidden></div>
+  <div class="m3-hint glass">
+    <span><b>Tap a block</b> to fly into the best free seat. Drag to turn, scroll to zoom.</span>
+    <button class="ghost" type="button" id="m3-plan">2D plan</button>
+  </div>
+  <div class="dive-hint mono">Tap to skip</div>
   <div class="segs floating" id="spot-tabs" hidden></div>
   <div class="view-tools">
     <button class="icon-btn glass" type="button" id="zoom-in" aria-label="Zoom in">+</button>
@@ -244,7 +262,7 @@
       <p class="tv" id="view-tv"></p>
       <ul class="warns" id="view-warn"></ul>
       <div class="vs-actions">
-        <button class="ghost" type="button" id="view-change">Change seat</button>
+        <button class="ghost" type="button" id="view-change">Other seats</button>
         <button class="primary" type="button" id="view-buy">Buy</button>
       </div>
       <div class="vs-foot"><p class="fine"><span id="view-crowd"></span> · Drag to look around, pinch or scroll to zoom.</p><label class="toy"><input type="checkbox" id="empty-venue"> Empty venue</label></div>

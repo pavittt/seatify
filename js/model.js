@@ -283,16 +283,22 @@ export function zoneSpot(model, zone, where) {
   const f = { front: 0.12, middle: 0.5, back: 0.9 }[where];
   if (zone.ring) {
     const r = zone.ring.r0 + (zone.ring.r1 - zone.ring.r0) * f;
-    return { x: 0, y: 0, z: zone.ring.z + r };
+    // walk round the ring if the sound desk would sit between you and the stage
+    const hit = (a) => model.obstacles.some((o) => { const px = Math.sin(a) * r, pz = zone.ring.z + Math.cos(a) * r; return Math.abs(o.x - px * ((o.z - zone.ring.z) / (pz - zone.ring.z))) < o.w / 2 + 3 && (o.z - zone.ring.z) / (pz - zone.ring.z) > 0 && (o.z - zone.ring.z) / (pz - zone.ring.z) < 1.05; });
+    let a = 0; while (hit(a) && a < 1.2) a += 0.1;
+    return { x: Math.sin(a) * r, y: 0, z: zone.ring.z + Math.cos(a) * r };
   }
   const { x0, x1, z0, z1 } = zone.rect;
   let x = (x0 + x1) / 2;
-  const z = z0 + (z1 - z0) * f;
-  // never drop the viewer inside the sound desk or a tower
-  for (const o of model.obstacles) if (Math.abs(x - o.x) < o.w / 2 + 1.5 && Math.abs(z - o.z) < o.d / 2 + 1.5) x = o.x + o.w / 2 + 3;
+  const z = zone.hole ? zone.hole.z + zone.hole.r + (z1 - zone.hole.z - zone.hole.r) * f : z0 + (z1 - z0) * f;
+  // never drop the viewer inside, or right behind, the sound desk or a tower: real fans stand
+  // to the side of front-of-house, so step sideways until the stage is in clear sight
+  for (const o of model.obstacles) {
+    const behind = z > o.z - o.d / 2 - 1.5 && z - o.z < 40;
+    if (behind && Math.abs(x - o.x) < o.w / 2 + 3) x = o.x + (x >= o.x ? 1 : -1) * (o.w / 2 + 6);
+  }
   if (where === 'back' && x === (x0 + x1) / 2) x += (x1 - x0) * 0.08;
   // step off the centre line so the sound desk is not right in front of you
-  if (zone.hole) return { x: 0, y: 0, z: zone.hole.z + zone.hole.r + (z1 - zone.hole.z - zone.hole.r) * f };
   return { x, y: 0, z };
 }
 

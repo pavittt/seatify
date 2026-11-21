@@ -40,15 +40,18 @@ function openMap({ show: s, venue, layout }) {
   $('#layout-switch').hidden = !!s;
   renderLayoutSwitch();
   loadModel();
-  show('screen-map');
+  openStadium();
 }
+
+// The flat 2D seat plan, for picking an exact seat from the grid.
+function openPlan() { show('screen-map'); }
 
 function renderLayoutSwitch() {
   const box = $('#layout-switch'); box.innerHTML = '';
   for (const [id, L] of Object.entries(LAYOUTS)) {
     const b = h('button', 'seg' + (state.layout === id ? ' on' : ''), esc(L.label)); b.type = 'button';
     b.setAttribute('aria-pressed', state.layout === id);
-    b.onclick = () => { state.layout = id; state.pick = null; renderLayoutSwitch(); loadModel(); };
+    b.onclick = () => { state.layout = id; state.pick = null; renderLayoutSwitch(); loadModel(); if (current === 'screen-view') openStadium(); };
     box.appendChild(b);
   }
 }
@@ -65,13 +68,15 @@ function loadModel() {
 function renderPriceChips() {
   const m = state.model; const cats = new Set([...m.sections.filter((s) => !s.closed).map((s) => s.cat), ...m.zones.map((z) => z.cat)]);
   const box = $('#price-chips'); box.innerHTML = '';
+  const box3 = $('#m3-chips'); if (box3) box3.innerHTML = '';
   const order = Object.keys(CATS).filter((c) => cats.has(c)).sort((a, b) => priceOf(m.venue, b) - priceOf(m.venue, a));
   for (const c of order) {
     const on = state.filter === c;
     const b = h('button', 'pchip' + (on ? ' on' : ''), `<i style="background:${CATS[c].color}"></i>${esc(CATS[c].label)} <b>${fmtINR(priceOf(m.venue, c))}</b>`);
     b.type = 'button'; b.setAttribute('aria-pressed', on);
-    b.onclick = () => { state.filter = on ? null : c; seatMap.applyFilter(state.filter); renderPriceChips(); };
+    b.onclick = () => { state.filter = on ? null : c; seatMap.applyFilter(state.filter); view.setFilter?.(state.filter); renderPriceChips(); };
     box.appendChild(b);
+    if (box3) { const b3 = b.cloneNode(true); b3.onclick = b.onclick; box3.appendChild(b3); }
   }
 }
 
@@ -166,29 +171,128 @@ function renderSelection() {
 // ---------------- view ----------------
 const view = new SeatView($('#view-canvas'));
 
+const scr = $('#screen-view');
+function setMode(mode) {
+  scr.classList.toggle('is-map', mode === 'map');
+  scr.classList.toggle('is-diving', mode === 'dive');
+  scr.classList.toggle('is-seat', mode === 'seat');
+}
+
+// ---------------- 3D stadium map ----------------
+function openStadium() {
+  const m = state.model;
+  view.showTitle = state.show ? state.show.artist : state.venue.name;
+  $('#m3-title').textContent = state.show ? state.show.title : state.venue.name;
+  $('#m3-sub').textContent = state.show ? `${state.venue.name}, ${state.venue.city} · ${state.show.date}` : `${state.venue.city} · ${state.venue.capacity}`;
+  const lay = $('#m3-layouts'); lay.innerHTML = ''; lay.hidden = !!state.show;
+  if (!state.show) for (const [id, L] of Object.entries(LAYOUTS)) {
+    const b = h('button', 'seg' + (state.layout === id ? ' on' : ''), esc(L.label)); b.type = 'button';
+    b.onclick = () => { state.layout = id; state.pick = null; renderLayoutSwitch(); loadModel(); openStadium(); };
+    lay.appendChild(b);
+  }
+  setMode('map');
+  $('#m3-tip').hidden = true;
+  const fresh = view.model !== m;
+  if (current !== 'screen-view') show('screen-view');
+  if (fresh) $('#view-loading').hidden = false;
+  requestAnimationFrame(() => setTimeout(() => {
+    view.load(m);
+    view.setFilter(state.filter);
+    view.markSeat(state.pick && state.pick.seat);
+    view.enterOverview({ instant: fresh || !view.mode });
+    $('#view-loading').hidden = true;
+  }, 30));
+}
+
+function backToStadium() { $('#checkout').hidden = true; openStadium(); }
+
+// the best free seat in a block: the middle row, as close to the centre line as possible
+function bestSeat(sec) {
+  const rows = sec.getRows(); const mid = Math.floor(rows.length * 0.45);
+  const order = rows.map((r, i) => [r, Math.abs(i - mid)]).sort((a, b) => a[1] - b[1]);
+  for (const [r] of order) {
+    const c = (r.seats.length - 1) / 2;
+    const seat = [...r.seats].filter((x) => !x.sold).sort((a, b) => Math.abs(a.n - 1 - c) - Math.abs(b.n - 1 - c))[0];
+    if (seat) return { row: r, seat };
+  }
+  return null;
+}
+
+function pick3d(item) {
+  $('#m3-tip').hidden = true;
+  if (item.kind === 'zone') {
+    const p = zoneSpot(state.model, item, 'middle');
+    state.pick = { type: 'zone', zone: item, where: 'middle', cat: item.cat, point: p };
+  } else {
+    const b = bestSeat(item);
+    if (!b) { showTip(item, null, null, 'Sold out. Try another block.'); return; }
+    state.pick = { type: 'seat', section: item, row: b.row, seat: b.seat, cat: item.cat, point: { x: b.seat.x, y: b.seat.y, z: b.seat.z } };
+  }
+  seatMap.select(item.id); renderSelection();
+  openView();
+}
+
+function showTip(item, x, y, note) {
+  const tip = $('#m3-tip');
+  if (!item) { tip.hidden = true; return; }
+  const m = state.model;
+  let free = '';
+  if (item.kind === 'zone') free = item.availability === 'few' ? 'Filling fast' : 'Standing';
+  else { let n = 0; for (const r of item.getRows()) for (const st of r.seats) if (!st.sold) n++; free = n ? `${n.toLocaleString('en-IN')} seats free` : 'Sold out'; }
+  tip.innerHTML = `<b>${esc(item.kind === 'zone' ? item.label : 'Sec ' + item.id)}</b><span>${esc(item.kind === 'zone' ? 'Standing' : CATS[item.cat].label + ' · ' + item.tier)} · ${fmtINR(priceOf(m.venue, item.cat))}</span><em>${esc(note || free)}</em>`;
+  tip.hidden = false;
+  if (x != null) { tip.style.left = Math.min(innerWidth - 200, x + 18) + 'px'; tip.style.top = Math.max(70, y - 20) + 'px'; }
+}
+
+// step to the next or previous free seat in the same row (or the next row)
+function stepSeat(dir) {
+  const p = state.pick; if (!p || p.type !== 'seat') return;
+  const rows = p.section.getRows(); let ri = rows.indexOf(p.row), si = p.row.seats.indexOf(p.seat);
+  for (let guard = 0; guard < 2000; guard++) {
+    si += dir;
+    if (si < 0 || si >= rows[ri].seats.length) { ri += dir; if (ri < 0 || ri >= rows.length) return; si = dir > 0 ? 0 : rows[ri].seats.length - 1; }
+    const s2 = rows[ri].seats[si];
+    if (!s2.sold) { Object.assign(p, { row: rows[ri], seat: s2, point: { x: s2.x, y: s2.y, z: s2.z } }); break; }
+  }
+  renderSelection();
+  view.buildCrowd({ x: p.point.x, y: p.point.y, z: p.point.z, seat: p.seat });
+  view.hopTo(p.point, p.seat);
+  $('#view-pill').textContent = `View from ${pickLabel(p)}`;
+  setTimeout(renderViewSheet, 750);
+}
+
 function openView() {
   const p = state.pick; if (!p) return;
   const m = state.model;
   view.showTitle = state.show ? state.show.artist : state.venue.name;
-  show('screen-view');
   // On phones and short windows start with the compact sheet so the 3D view stays visible.
   const compact = innerWidth < 900 || innerHeight < 820;
   $('#view-sheet').classList.toggle('collapsed', compact);
   $('#sheet-toggle').setAttribute('aria-expanded', String(!compact));
-  $('#view-loading').hidden = false;
+  const fromMap = current === 'screen-view' && view.mode === 'overview' && view.model === m;
+  if (current !== 'screen-view') show('screen-view');
+  if (!fromMap) $('#view-loading').hidden = false;
+  setMode('dive');
   requestAnimationFrame(() => setTimeout(() => {
     view.load(m);
+    if (!fromMap) { view.setFilter(state.filter); view.enterOverview({ instant: true }); view._frame?.(); }
     view.buildCrowd({ x: p.point.x, y: p.point.y, z: p.point.z, seat: p.seat });
-    view.flyTo(p.point);
+    view.onArrive = () => { setMode('seat'); renderViewSheet(); };
+    view.diveTo(p.point, p.seat || null);
     $('#view-loading').hidden = true;
-    renderViewSheet();
   }, 30));
   $('#view-pill').textContent = `View from ${pickLabel(p)}`;
+  $('#seat-prev').hidden = $('#seat-next').hidden = p.type !== 'seat';
   const tabs = $('#spot-tabs'); tabs.hidden = p.type !== 'zone'; tabs.innerHTML = '';
   if (p.type === 'zone') for (const where of ['front', 'middle', 'back']) {
     const b = h('button', 'seg' + (p.where === where ? ' on' : ''), where[0].toUpperCase() + where.slice(1)); b.type = 'button';
     b.setAttribute('aria-pressed', p.where === where);
-    b.onclick = () => { selectSpot(p.zone, where); openView(); };
+    b.onclick = () => {
+      selectSpot(p.zone, where); const q = state.pick;
+      for (const x of tabs.children) { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); }
+      view.buildCrowd({ x: q.point.x, y: q.point.y, z: q.point.z }); view.hopTo(q.point, null);
+      $('#view-pill').textContent = `View from ${pickLabel(q)}`; setTimeout(renderViewSheet, 750);
+    };
     tabs.appendChild(b);
   }
 }
@@ -271,12 +375,22 @@ function renderTicket(total) {
 }
 
 // ---------------- wiring ----------------
-$('#map-back').onclick = () => show('screen-home');
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#checkout').hidden) { if (current === 'screen-view') show('screen-map'); else if (current === 'screen-map') show('screen-home'); } });
+$('#map-back').onclick = () => openStadium();
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !$('#checkout').hidden) return;
+  if (current === 'screen-view') { if (scr.classList.contains('is-map')) show('screen-home'); else if (scr.classList.contains('is-diving')) view.skipDive(); else backToStadium(); }
+  else if (current === 'screen-map') openStadium();
+});
 $('#map-reset').onclick = () => seatMap.resetView();
 $('#select-view').onclick = openView;
-$('#view-back').onclick = () => show('screen-map');
-$('#view-change').onclick = () => show('screen-map');
+$('#view-back').onclick = () => (scr.classList.contains('is-map') ? show('screen-home') : backToStadium());
+$('#view-change').onclick = backToStadium;
+$('#m3-plan').onclick = openPlan;
+$('#seat-prev').onclick = () => stepSeat(-1);
+$('#seat-next').onclick = () => stepSeat(1);
+view.onHover = (it, x, y) => showTip(it, x, y);
+$('#view-canvas').addEventListener('pointerleave', () => { if (view.mode === 'overview') { view.setHover(null); showTip(null); } });
+view.onPick = (it) => pick3d(it);
 $('#view-buy').onclick = openCheckout;
 $('#select-buy').onclick = openCheckout;
 $('#zoom-in').onclick = () => view.zoom(0.75);
@@ -291,10 +405,10 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#che
 function openDemo() {
   const s = SHOWS[0]; openMap({ show: s, venue: VENUES.find((v) => v.id === s.venue), layout: s.layout });
   const sec = state.model.sections.filter((x) => x.tierIdx === 0 && !x.closed && x.availability === 'open').sort((a, b) => Math.abs(a.phi - 62) - Math.abs(b.phi - 62))[0];
-  pickItem(sec); const r = sec.getRows()[10]; const seat = r.seats.find((x) => !x.sold) || r.seats[0];
+  const r = sec.getRows()[10]; const seat = r.seats.find((x) => !x.sold) || r.seats[0];
   state.pick = { type: 'seat', section: sec, row: r, seat, cat: sec.cat, point: { x: seat.x, y: seat.y, z: seat.z } };
   renderSelection(); openView();
 }
 if (location.hash === '#demo') openDemo();
-window.__seatify = { state, view, openView, pickItem, getModel, VENUES };
+window.__seatify = { state, view, openView, pickItem, getModel, VENUES, openStadium, pick3d, stepSeat };
 export { openMap, getModel, show, openDemo };
