@@ -26,90 +26,111 @@ export const LAYOUTS = {
   center: { label: '360° centre stage', blurb: 'Stage in the middle, seats on every side.' },
 };
 
-const STADIUM_STAGE = { w: 62, d: 18, h: 2.4, screenW: 46, screenH: 15, screenY: 7 };
-const GROUND_STAGE = { w: 54, d: 16, h: 2.2, screenW: 38, screenH: 13, screenY: 6 };
-const ARENA_STAGE = { w: 22, d: 10, h: 1.8, screenW: 16, screenH: 7, screenY: 4 };
+// Stage sizes follow what actually tours Indian venues: ground-supported roofs (Stageco
+// Classic 4-tower, aluminium roofs) rig at about 15 m, decks sit about 2 m above the floor.
+// trim = height of the roof grid; wings = how far the PA/IMAG wings reach past the deck.
+const STADIUM_STAGE = { w: 40, d: 16, h: 2.0, trim: 17, wings: 10, screenW: 26, screenH: 11, screenY: 3.6 };
+const GROUND_STAGE = { w: 34, d: 14, h: 2.0, trim: 15, wings: 9, screenW: 20, screenH: 9, screenY: 3.2 };
+const ARENA_STAGE = { w: 20, d: 10, h: 1.5, trim: 10.5, wings: 4, screenW: 12, screenH: 6, screenY: 2.6 };
 
+// Bowl geometry, all in metres, measured from real sources (see docs/venue-research.md):
+//   a, b, n  the inner edge of the seating as a superellipse; b is always the long axis, so an
+//            end stage sits at a short end the way real promoters set it up.
+//   tiers    gap = distance from the end of the tier below (negative when the tier overhangs it),
+//            base = height of the first row above the field, rake = rise per 0.8 m row.
+//   roof     inner edge distance from the field (d), edge height (y), outer height (yOut).
+//   seats    the colours of the seats as they appear in photos.
 export const VENUES = [
   {
     id: 'nms', name: 'Narendra Modi Stadium', city: 'Ahmedabad', kind: 'stadium',
-    capacity: '1,32,000 seats · 1 lakh+ at concerts',
-    notes: 'The largest cricket stadium in the world. A round three-tier bowl with a canopy roof over the seats. Concerts use an end stage on the outfield.',
+    capacity: '1,32,000 seats · 1,11,989 at Coldplay (record)',
+    notes: 'The largest cricket stadium in the world. A two-tier round bowl, 55 m deep, around a 165 × 141 m outfield, with a 30 m PTFE canopy lit by an LED ring. Concerts put the stage at one end of the outfield, so the far stand is about 160 m away.',
     bowl: {
-      a: 86, b: 86, n: 2,
+      a: 70.5, b: 82.5, n: 2,
       tiers: [
-        { name: 'Lower', prefix: 1, rows: 34, gap: 5, base: 1.2, rake: 0.42, sections: 36 },
-        { name: 'Middle', prefix: 2, rows: 12, gap: -5, base: 19.5, rake: 0.52, sections: 36 },
-        { name: 'Upper', prefix: 3, rows: 38, gap: -3, base: 28, rake: 0.56, sections: 36 },
+        { name: 'Lower', prefix: 1, rows: 32, gap: 6, base: 1.5, rake: 0.4, sections: 36 },
+        { name: 'Upper', prefix: 3, rows: 40, gap: -6, base: 21, rake: 0.56, sections: 36 },
       ],
-      roof: { inset: 26, lift: 6 },
+      roof: { d: 27, y: 47, yOut: 50, ledRing: true, color: '#d9dde4' },
+      seats: [['#e8742c', '#df5f2a', '#e8742c', '#d3452e'], ['#2a55b4', '#2e5cc0', '#264ea6']],
+      zigzag: { tier: 1, color: '#e8742c' },
     },
     stage: STADIUM_STAGE, priceScale: 1, scenery: 'city', delayTowers: true,
   },
   {
     id: 'dyp', name: 'DY Patil Stadium', city: 'Navi Mumbai', kind: 'stadium',
-    capacity: '~55,000 seats · 60,000+ at concerts',
-    notes: 'Oval two-tier bowl in Nerul. Used for big stadium tours with an end stage at the south end. Roof cover is not modelled.',
+    capacity: '45,300 seats · ~55,000 at concerts with the floor',
+    notes: 'A round two-tier cricket bowl in Nerul around a 146 m outfield, blue bucket seats, a band of corporate boxes between the tiers and white gull-wing roof canopies over the upper tier. Coldplay and U2 used an end stage on the outfield.',
     bowl: {
-      a: 78, b: 70, n: 2.1,
+      a: 72, b: 73, n: 2,
       tiers: [
-        { name: 'Lower', prefix: 1, rows: 26, gap: 4, base: 1.2, rake: 0.42, sections: 28 },
-        { name: 'Upper', prefix: 2, rows: 30, gap: -3, base: 15.5, rake: 0.56, sections: 28 },
+        { name: 'Lower', prefix: 1, rows: 24, gap: 5, base: 1.6, rake: 0.42, sections: 28 },
+        { name: 'Upper', prefix: 2, rows: 24, gap: -3, base: 16, rake: 0.58, sections: 28 },
       ],
+      roof: { d: 24, y: 34, yOut: 30, gullWing: true, color: '#e8e4da' },
+      seats: ['#2457b8', '#2a62c9', '#1e4c9e'],
     },
     stage: STADIUM_STAGE, priceScale: 1.05, scenery: 'city', delayTowers: true,
   },
   {
     id: 'jln', name: 'Jawaharlal Nehru Stadium', city: 'New Delhi', kind: 'stadium',
-    capacity: '~60,000 seats',
-    notes: 'Athletics stadium with a running track around the field and a membrane roof over all stands, added for the 2010 Commonwealth Games.',
+    capacity: '60,254 seats · more with the floor',
+    notes: 'Athletics stadium with a 400 m track round a 106 × 68 m field. The 2010 membrane roof (350 × 290 m, 45 m high) covers every seat. Concerts like Diljit Dosanjh put the stage at one end of the track, so the floor is long and narrow.',
     bowl: {
-      a: 96, b: 62, n: 2.7,
+      a: 63, b: 97, n: 2.6,
       tiers: [
-        { name: 'Lower', prefix: 1, rows: 26, gap: 8, base: 1.4, rake: 0.42, sections: 32 },
-        { name: 'Upper', prefix: 2, rows: 28, gap: -2, base: 14, rake: 0.55, sections: 32 },
+        { name: 'Lower', prefix: 1, rows: 30, gap: 3, base: 1.2, rake: 0.4, sections: 32 },
+        { name: 'Upper', prefix: 2, rows: 34, gap: -2, base: 15.5, rake: 0.55, sections: 32 },
       ],
-      roof: { inset: 30, lift: 7 },
+      roof: { d: 2, y: 37, yOut: 45, membrane: true, color: '#f1f1ee' },
+      track: true,
+      seats: ['#2b3a55', '#33476b', '#25324a'],
     },
     stage: STADIUM_STAGE, priceScale: 1, scenery: 'city', delayTowers: true,
   },
   {
     id: 'saltlake', name: 'Salt Lake Stadium', city: 'Kolkata', kind: 'stadium',
-    capacity: '~68,000 seats',
-    notes: 'Vivekananda Yuba Bharati Krirangan, a two-tier football bowl with a running track and a roof over the upper tier.',
+    capacity: '68,000 seats',
+    notes: 'Vivekananda Yuba Bharati Krirangan: three tiers of concrete galleries round a 105 × 70 m pitch and running track, with a metal roof and floodlights over the top tier. The top tier is high and far from the floor.',
     bowl: {
-      a: 92, b: 76, n: 2.3,
+      a: 60, b: 92, n: 2.4,
       tiers: [
-        { name: 'Lower', prefix: 1, rows: 30, gap: 8, base: 1.3, rake: 0.42, sections: 32 },
-        { name: 'Upper', prefix: 2, rows: 32, gap: -2, base: 16, rake: 0.56, sections: 32 },
+        { name: 'Lower', prefix: 1, rows: 26, gap: 4, base: 1.5, rake: 0.38, sections: 32 },
+        { name: 'Middle', prefix: 2, rows: 20, gap: -2, base: 14, rake: 0.5, sections: 32 },
+        { name: 'Upper', prefix: 3, rows: 26, gap: -2, base: 26, rake: 0.56, sections: 32 },
       ],
-      roof: { inset: 18, lift: 6 },
+      roof: { d: 40, y: 45, yOut: 47, color: '#9aa0a8', floodlights: true },
+      track: true,
+      seats: ['#c7372f', '#e0b52b', '#2c62b4', '#2f8f4e'], seatMix: 'random',
     },
     stage: STADIUM_STAGE, priceScale: 0.85, scenery: 'city', delayTowers: true,
   },
   {
     id: 'gachibowli', name: 'GMC Balayogi Stadium', city: 'Hyderabad (Gachibowli)', kind: 'stadium',
-    capacity: '~30,000 seats',
-    notes: 'Single-tier athletics stadium in Gachibowli with a roofed pavilion stand on one long side.',
+    capacity: '~18,000 seats',
+    notes: 'A low single-tier athletics stadium in Gachibowli: an eight-lane track round a 105 × 68 m pitch, with 25 m cantilevered roofs over both long stands and open ends. Everything is close and low.',
     bowl: {
-      a: 88, b: 56, n: 2.7,
+      a: 54, b: 88, n: 2.7,
       tiers: [
-        { name: 'Stand', prefix: 1, rows: 30, gap: 8, base: 1.3, rake: 0.46, sections: 28 },
+        { name: 'Stand', prefix: 1, rows: 18, gap: 6, base: 1.4, rake: 0.45, sections: 28 },
       ],
-      roof: { inset: 16, lift: 6, from: -40, to: 40 },
+      roof: { d: 2, y: 19, yOut: 17, color: '#d8d2c6', spans: [[-42, 42], [138, 222]] },
+      track: true,
+      seats: ['#c9cbd0', '#3a63b0', '#c9cbd0'],
     },
     stage: STADIUM_STAGE, priceScale: 0.85, scenery: 'city', delayTowers: true,
   },
   {
     id: 'nsci', name: 'NSCI Dome', city: 'Mumbai (Worli)', kind: 'arena',
-    capacity: '~8,000 at concerts',
-    notes: 'Indoor domed arena at the National Sports Club of India. Raked seating around a flat floor that becomes a standing zone.',
+    capacity: '~6,000 to 8,000 at concerts',
+    notes: 'Indoor domed arena (Dome SVP Stadium) at the National Sports Club of India. A ring of raked seats round a flat floor that becomes the standing zone, under a steel dome.',
     bowl: {
-      a: 27, b: 21, n: 3,
+      a: 22, b: 28, n: 2.6,
       tiers: [
         { name: 'Bowl', prefix: 1, rows: 18, gap: 3, base: 1.4, rake: 0.5, sections: 16 },
       ],
       dome: true,
+      seats: ['#8a1f2b', '#a12634'],
     },
     stage: ARENA_STAGE, priceScale: 1.15, scenery: 'none', delayTowers: false,
   },

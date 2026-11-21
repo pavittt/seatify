@@ -314,7 +314,7 @@ function setupCompare() {
   const pitP = zoneSpot(m, pit, 'front');
   const gold = m.sections.filter((s) => s.tierIdx === 0 && s.cat === 'GOLD' && !s.closed).sort((a, b) => Math.abs(a.phi - 70) - Math.abs(b.phi - 70))[0];
   const gs = gold.getRows()[10].seats[20];
-  const top = m.sections.filter((s) => s.tierIdx === 2 && !s.closed).sort((a, b) => a.phi - b.phi)[0];
+  const top = m.sections.filter((s) => s.tierIdx === m.tierInfo.length - 1 && !s.closed).sort((a, b) => a.phi - b.phi)[0];
   const ts = top.getRows()[28].seats[10];
   const cols = [
     { name: 'Fan Pit', sub: 'Front of the pit', cat: 'PIT', s: viewStats(m, pitP) },

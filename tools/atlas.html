@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Crowd atlas</title>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script></head>
+<body style="margin:0;background:#556"><script type="module">
+import { crowdAtlas } from '../js/crowd.js';
+const a = crowdAtlas(); a.canvas.style.width = '100%'; document.body.appendChild(a.canvas); window.ready = true;
+</script></body></html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Seat view test camera</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;height:100%;background:#000}canvas{width:100vw;height:100vh;display:block}#hud{position:fixed;left:8px;bottom:8px;color:#fff;font:12px/1.3 monospace;background:#0008;padding:4px 6px}</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+</head><body><canvas id="c"></canvas><div id="hud"></div>
+<script type="module">
+// Dev-only test camera: renders the seat view for one venue/seat so it can be compared with real photos.
+// viewcam.html?venue=nms&layout=end&sec=114&row=10&seat=0.5   or  &zone=PIT&where=front
+// optional: &empty=1 &yaw=deg &pitch=deg &fov=deg (vertical) &time=night|day
+import * as THREE from 'three';
+import { VENUES } from '../js/data/venues.js';
+import { buildModel, zoneSpot, viewStats } from '../js/model.js';
+import { SeatView } from '../js/scene3d.js';
+const P = new URLSearchParams(location.search);
+const venue = VENUES.find((v) => v.id === (P.get('venue') || 'nms'));
+const model = buildModel(venue, P.get('layout') || 'end');
+const view = new SeatView(document.getElementById('c'), { interactive: true });
+window.view = view; window.model = model;
+view.showTitle = P.get('title') || 'SEATIFY LIVE';
+view.load(model);
+let point, seat = null, label;
+if (P.get('zone')) {
+  const z = model.zones.find((z) => z.id === P.get('zone')) || model.zones[0];
+  point = zoneSpot(model, z, P.get('where') || 'middle'); label = z.label + ' ' + (P.get('where') || 'middle');
+} else {
+  const sec = model.sections.find((s) => s.id === P.get('sec')) || model.sections.find((s) => !s.closed);
+  const rows = sec.getRows(); const r = rows[Math.min(rows.length - 1, +(P.get('row') || 0))];
+  const f = +(P.get('seat') ?? 0.5); seat = r.seats[Math.min(r.seats.length - 1, Math.floor(f * r.seats.length))];
+  point = { x: seat.x, y: seat.y, z: seat.z }; label = `${sec.label} row ${r.label} seat ${seat.n}`;
+}
+view.buildCrowd({ ...point, seat }, { cap: +(P.get('cap') || 30000) });
+if (P.get('empty')) { view.setEmpty(true); view.houseMix = 1; }
+if (P.get('time') === 'day') {
+  // daylight, to line up with daytime reference photos (test camera only)
+  const sky = new THREE.Color('#9fb8d6'); view.scene.background = sky; view.scene.fog.color = sky;
+  view.anim.push(() => { view.hemi.intensity = 2.6; view.hemi.color.set('#dfe9ff'); view.hemi.groundColor.set('#7a6a55'); view.flood.intensity = 2.4; view.flood.color.set('#fff6e8'); view.renderer.toneMappingExposure = 1.0; view.bloom.strength = 0.15; });
+}
+view.flyTo(point, { instant: true });
+if (P.get('look')) {
+  // aim at a point instead of the stage, to line up with a reference photo
+  const [lx, ly, lz] = P.get('look').split(',').map(Number);
+  const m = new THREE.Matrix4().lookAt(view.eye, new THREE.Vector3(lx, ly, lz), new THREE.Vector3(0, 1, 0));
+  view.baseQ.setFromRotationMatrix(m); view.rest.yaw = 0; view.rest.pitch = 0; view.yaw = 0; view.pitch = 0;
+}
+const d = Math.PI / 180;
+if (P.get('yaw')) view.yaw = view.rest.yaw + +P.get('yaw') * d;
+if (P.get('pitch')) view.pitch = view.rest.pitch + +P.get('pitch') * d;
+if (P.get('fov')) view.fov = +P.get('fov');
+view.start();
+const s = viewStats(model, point);
+document.getElementById('hud').textContent = `${venue.name} · ${label} · ${s.dist.toFixed(0)} m to stage · eye ${(point.y + 1.62).toFixed(1)} m`;
+if (P.get('nohud')) document.getElementById('hud').remove();
+setTimeout(() => (window.ready = true), 1500);
+</script></body></html>
