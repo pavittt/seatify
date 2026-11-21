@@ -282,7 +282,7 @@ $('#select-buy').onclick = openCheckout;
 $('#zoom-in').onclick = () => view.zoom(0.75);
 $('#zoom-out').onclick = () => view.zoom(1.33);
 $('#recentre').onclick = () => view.recentre();
-$('#toy-heads').onchange = (e) => view.setToyHeads(e.target.checked);
+$('#empty-venue').onchange = (e) => view.setEmpty(e.target.checked);
 $('#sheet-toggle').onclick = () => { const vs = $('#view-sheet'); const c = vs.classList.toggle('collapsed'); $('#sheet-toggle').setAttribute('aria-expanded', !c); };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#checkout').hidden) $('#checkout').hidden = true; });
 

@@ -6,7 +6,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CATS } from './data/venues.js';
-import { ROW_D, EYE, hash01 } from './model.js';
+import { ROW_D, EYE, hash01, priceOf, fmtINR } from './model.js';
 
 // Gig crowds dress dark: mostly black and band tees, a few whites and colours.
 const SHIRTS = ['#111114', '#141418', '#1a1a20', '#0e0f13', '#22252e', '#2b2f3a', '#1d2433', '#f1ede4', '#e9e4da', '#7d1f2a', '#2e4a7d', '#3b5e3f', '#c9a227', '#5e3a7a', '#a83a5a', '#1e1e1e'];
@@ -89,7 +89,8 @@ export class SeatView {
     this.targets = [];
     this.anim = [];
 
-    this.root.add(new THREE.HemisphereLight('#7f8fc7', '#1a1420', 0.7));
+    this.hemi = new THREE.HemisphereLight('#7f8fc7', '#1a1420', 0.7); this.root.add(this.hemi);
+    this.house = new THREE.AmbientLight('#e8eeff', 0); this.root.add(this.house);
     const moon = new THREE.DirectionalLight('#b9c6ff', 0.45); moon.position.set(-80, 160, 120); this.root.add(moon);
     // light spilling off the stage onto the crowd's faces
     const spill = new THREE.DirectionalLight('#ffb38a', 0.55); spill.position.set(0, 30, model.stage.type === 'center' ? 0 : model.stage.zBack); spill.target.position.set(0, 0, 60); this.root.add(spill, spill.target);
@@ -254,6 +255,7 @@ export class SeatView {
     const ribbonMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, toneMapped: false });
     this.root.add(new THREE.Mesh(rg, ribbonMat));
     this.anim.push((t) => ribbonMat.color.setHSL((t * 0.08) % 1, 0.8, 0.5));
+    this._buildPriceBoards(model);
 
     const last = model.tierInfo[model.tierInfo.length - 1];
     const v = model.venue;
@@ -753,6 +755,7 @@ export class SeatView {
       }
     }
 
+    this._buildChairs(focus, coarse ? 45 : 75);
     const N = spots.length;
     const G = this._personGeoms();
     const group = new THREE.Group();
@@ -792,9 +795,101 @@ export class SeatView {
       const pm = new THREE.PointsMaterial({ color: new THREE.Color('#fff6d8').multiplyScalar(2.5), toneMapped: false, size: 0.2, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending });
       group.add(new THREE.Points(pg, pm));
     }
+    group.visible = !this.empty;
     this.crowd = group;
     this.crowdCount = N;
     this.root.add(group);
+  }
+
+  // Every seat near you is a real chair, tinted by price band; your own seat glows lime.
+  _buildChairs(focus, radius) {
+    if (this.chairs) { this.root.remove(this.chairs); this.chairs.traverse((o) => o.geometry?.dispose?.()); }
+    const model = this.model, st = model.stage;
+    const target = st.type === 'center' ? [st.x, st.z] : [0, st.zBack + st.d];
+    const cx = focus ? focus.x : 0, cz = focus ? focus.z : 0;
+    const list = [];
+    for (const sec of model.sections) {
+      if (sec.closed) continue;
+      const c = sec.center; if (focus && Math.hypot(c[0] - cx, c[1] - cz) > radius + 40) continue;
+      for (const r of sec.getRows()) for (const seat of r.seats) if (!focus || Math.hypot(seat.x - cx, seat.z - cz) < radius) list.push([seat, sec.cat]);
+    }
+    const group = new THREE.Group();
+    if (!list.length) { this.chairs = group; this.root.add(group); return; }
+    if (!this._chairGeo) {
+      // tip-up stadium seat: thin pan, tilted shell back, armrests, a single stem
+      const back = new THREE.BoxGeometry(0.4, 0.46, 0.04); back.rotateX(-0.14); back.translate(0, 0.72, -0.17);
+      this._chairGeo = merge([box(0.4, 0.045, 0.36, 0, 0.43, 0.02), back, box(0.035, 0.035, 0.3, -0.235, 0.6, -0.02), box(0.035, 0.035, 0.3, 0.235, 0.6, -0.02), box(0.035, 0.2, 0.035, -0.235, 0.5, -0.12), box(0.035, 0.2, 0.035, 0.235, 0.5, -0.12), box(0.05, 0.42, 0.05, 0, 0.21, -0.05)]);
+    }
+    const mesh = new THREE.InstancedMesh(this._chairGeo, new THREE.MeshLambertMaterial({ color: '#ffffff' }), list.length);
+    mesh.frustumCulled = false;
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1), col = new THREE.Color();
+    const tints = {};
+    let mine = null;
+    list.forEach(([seat, cat], i) => {
+      const yaw = Math.atan2(target[0] - seat.x, target[1] - seat.z);
+      q.setFromAxisAngle(up, yaw);
+      // the chair sits a little behind where a standing fan's feet are
+      p.set(seat.x - Math.sin(yaw) * 0.22, seat.y, seat.z - Math.cos(yaw) * 0.22);
+      m4.compose(p, q, one); mesh.setMatrixAt(i, m4);
+      tints[cat] ||= new THREE.Color('#1d4596').lerp(new THREE.Color(CATS[cat].color), 0.16);
+      mesh.setColorAt(i, col.copy(tints[cat]).multiplyScalar(0.85 + hash01('c' + i) * 0.25));
+      if (focus && seat === focus.seat) mine = m4.clone();
+    });
+    mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true;
+    group.add(mesh);
+    if (mine) {
+      const me = new THREE.Mesh(this._chairGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color('#c6ff3d').multiplyScalar(1.4), toneMapped: false }));
+      me.applyMatrix4(mine); group.add(me);
+    }
+    this.chairs = group; this.chairCount = list.length;
+    this.root.add(group);
+  }
+
+  // LED boards along each tier front that show the price band, like real stadium fascia boards.
+  _buildPriceBoards(model) {
+    const { a, b, n } = model.venue.bowl;
+    const texFor = {};
+    const tex = (cat) => {
+      if (texFor[cat]) return texFor[cat];
+      const c = document.createElement('canvas'); c.width = 1024; c.height = 64;
+      const g = c.getContext('2d');
+      g.fillStyle = '#040406'; g.fillRect(0, 0, 1024, 64);
+      g.fillStyle = CATS[cat].color; g.fillRect(14, 22, 20, 20);
+      g.font = '700 38px Archivo, Arial Narrow, Arial, sans-serif'; g.textBaseline = 'middle';
+      g.fillStyle = '#f5efe4'; const label = CATS[cat].label.toUpperCase();
+      g.fillText(label, 50, 34);
+      const w = g.measureText(label).width;
+      g.fillStyle = '#c6ff3d'; g.fillText('FROM ' + fmtINR(priceOf(model.venue, cat)), 50 + w + 30, 34);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+      return (texFor[cat] = new THREE.MeshBasicMaterial({ map: t, toneMapped: false, color: new THREE.Color(1.15, 1.15, 1.15) }));
+    };
+    const geo = new THREE.PlaneGeometry(1, 1);
+    for (const sec of model.sections) {
+      if (sec.closed || sec.kind !== 'arc') continue;
+      const d = sec.d0 - ROW_D / 2;
+      const A = sePoint(a + d, b + d, n, sec.t0 + (sec.t1 - sec.t0) * 0.08), B = sePoint(a + d, b + d, n, sec.t1 - (sec.t1 - sec.t0) * 0.08);
+      const len = Math.hypot(B[0] - A[0], B[1] - A[1]); if (len < 4) continue;
+      const h = Math.min(0.8, len / 16);
+      const m = new THREE.Mesh(geo, tex(sec.cat));
+      const mx = (A[0] + B[0]) / 2, mz = (A[1] + B[1]) / 2;
+      let nx = -(B[1] - A[1]), nz = B[0] - A[0];
+      if (nx * -mx + nz * -mz < 0) { nx = -nx; nz = -nz; }
+      m.scale.set(len, h, 1);
+      m.position.set(mx + (nx / len) * 0.06, sec.base - 0.75, mz + (nz / len) * 0.06);
+      m.rotation.y = Math.atan2(nx, nz);
+      this.root.add(m);
+    }
+  }
+
+  // "Empty venue": house lights up, no crowd, seated eye height, so you can judge the seat itself.
+  setEmpty(on) {
+    this.empty = on;
+    if (this.crowd) this.crowd.visible = !on;
+    if (this.hemi) this.hemi.intensity = on ? 2.6 : 0.7;
+    if (this.house) this.house.intensity = on ? 0.9 : 0;
+    this.renderer.toneMappingExposure = on ? 1.35 : 1.15;
+    this.bloom && (this.bloom.strength = on ? 0.45 : 0.85);
+    if (this.lastPoint) this.flyTo(this.lastPoint, { instant: true });
   }
 
   setToyHeads(on) {
@@ -807,7 +902,8 @@ export class SeatView {
 
   // ---------- camera ----------
   flyTo(point, { instant = false } = {}) {
-    const eye = new THREE.Vector3(point.x, point.y + EYE, point.z);
+    this.lastPoint = point;
+    const eye = new THREE.Vector3(point.x, point.y + (this.empty && point.y > 0.5 ? 1.18 : EYE), point.z);
     this.eye = eye;
     const look = this.stageFocus.clone();
     const endQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, look, new THREE.Vector3(0, 1, 0)));
@@ -900,6 +996,8 @@ export class SeatView {
     // place the stage a little above centre (the bottom sheet covers the lower part on phones)
     const lift = THREE.MathUtils.degToRad(fov) * (aspect < 0.9 ? 0.16 : 0.06);
     this.rest = { yaw: -(h0 + h1) / 2, pitch: (v0 + v1) / 2 - lift, fov };
+    // empty venue: a wide, slightly lowered view that takes in the seats around you as well as the stage
+    if (this.empty) this.rest = { yaw: this.rest.yaw, pitch: this.rest.pitch - THREE.MathUtils.degToRad(7), fov: Math.max(fov * 1.6, 62) };
   }
 
   start() { if (this.running) return; this.running = true; this.resize(); const loop = () => { if (!this.running) return; this._frame(); requestAnimationFrame(loop); }; requestAnimationFrame(loop); }

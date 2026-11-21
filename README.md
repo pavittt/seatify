@@ -4,7 +4,7 @@ Concert ticketing for India's big venues, with a 3D **view from your seat** befo
 
 Live site: https://pavittt.github.io/seatify/
 
-Pick a show or a venue, choose a price band on the seat map, tap a section and a seat (or a standing zone), and the camera flies into a 3D view of the stage from that exact spot. The scene is filled with chunky toy-block fans who bounce and hold up phone lights. A bottom sheet shows a mini-map, the distance to the stage, viewing angle, how far off-centre you are, how big the main screen looks, and warnings when something blocks the view.
+Pick a show or a venue, choose a price band on the seat map, tap a section and a seat (or a standing zone), and the camera flies into a 3D view of the stage from that exact spot. The scene is filled with fans who bounce and hold up phone lights. A bottom sheet shows a mini-map, the distance to the stage, viewing angle, how far off-centre you are, how big the main screen looks, and warnings when something blocks the view.
 
 ## What's in it
 
@@ -14,7 +14,7 @@ Pick a show or a venue, choose a price band on the seat map, tap a section and a
 - **Line-of-sight check.** Rays are cast from your eye to the stage and screens. If the sound desk, a delay speaker tower, a stage tower or the tier above you is in the way, the sheet says how much of the view it blocks.
 - **Viewing stats**: distance, angle, off-centre distance, height, and "the main screen looks like a 41″ TV from your sofa".
 - **Checkout mock** with quantity, fees and a ticket. No payment is taken.
-- A **toy heads** switch turns everyone's heads toy yellow.
+- An **Empty venue** switch takes the crowd away, brings the house lights up and drops you to seated eye height, so you can judge the seat itself (like the empty-stadium seat views real venues publish).
 
 ## The homepage
 
@@ -36,7 +36,7 @@ A fixed sticker spins faster while you scroll and opens a seat view (from Airbor
 
 **Look:** a night palette of ink and cream, with acid lime, hot pink and electric violet as big rounded colour panels. Display type is Archivo at its heaviest weight and widest width, in caps, mixed with Instrument Serif italic letters. Body text is Geist and data is Geist Mono, with a fine film grain over everything.
 
-**Seat view realism:** the camera aims and zooms so the whole stage is in frame from any seat. The stage has box truss towers and roof grid, an LED main wall with visible pixel pitch, LED columns, flown IMAG side screens with a live camera feed, curved line-array PA hangs, subs, a barricade, a band with drum riser and amps, moving-head fixtures whose beams change cues every 8 seconds, haze, and bloom post-processing (three.js UnrealBloomPass). The back of the set is built too: scaffold behind the video wall, black rear and side drapes, and flight cases in the wings, so side-stage seats see what they would really see. The crowd has human proportions (rounded bodies, varied heights and builds) and dresses dark like a real gig crowd, holding up phone lights. The stands have rows of seat backs, aisles and concrete steps.
+**Seat view realism:** the camera aims and zooms so the whole stage is in frame from any seat. The stage has box truss towers and roof grid, an LED main wall with visible pixel pitch, LED columns, flown IMAG side screens with a live camera feed, curved line-array PA hangs, subs, a barricade, a band with drum riser and amps, moving-head fixtures whose beams change cues every 8 seconds, haze, and bloom post-processing (three.js UnrealBloomPass). The back of the set is built too: scaffold behind the video wall, black rear and side drapes, and flight cases in the wings, so side-stage seats see what they would really see. The crowd has human proportions (rounded bodies, varied heights and builds) and dresses dark like a real gig crowd, holding up phone lights. The stands have rows of seat backs, aisles and concrete steps. Every seat near you is a real tip-up chair facing the stage, and yours glows lime. LED fascia boards along each tier front show that block's price band and starting price.
 
 **Images:** the venue images in `assets/venues/` are 1600×1000 renders from Seatify's own 3D scene, so there are no licensing issues. Swap in licensed photos with the same file names if you want real venue shots.
 
