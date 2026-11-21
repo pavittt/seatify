@@ -767,8 +767,19 @@ export class SeatView {
     this._frameStage();
     this.yaw = this.rest.yaw; this.pitch = this.rest.pitch; this.fov = this.rest.fov; this.camera.fov = this.fov; this.camera.updateProjectionMatrix();
     const b = this.model.bounds;
-    const startPos = new THREE.Vector3(eye.x * 0.4, Math.max(90, (b.z1 - b.z0) * 0.55), eye.z * 0.4 + (b.z1 - b.z0) * 0.35);
-    const startQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(startPos, new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0)));
+    let startPos = new THREE.Vector3(eye.x * 0.4, Math.max(90, (b.z1 - b.z0) * 0.55), eye.z * 0.4 + (b.z1 - b.z0) * 0.35);
+    let startLook = new THREE.Vector3(0, 0, 0);
+    if (this.heroStart) {
+      // a crane shot over the crowd, facing the stage: the opening frame of the home page
+      const f = this.stageFocus, d = new THREE.Vector3(-f.x, 0, -f.z);
+      if (d.lengthSq() < 1) d.set(0, 0, 1);
+      d.normalize();
+      const L = Math.max(60, Math.min(170, (b.z1 - b.z0) * 0.42));
+      startPos = f.clone().addScaledVector(d, L).add(new THREE.Vector3(d.z * L * 0.18, 0, -d.x * L * 0.18));
+      startPos.y = f.y + L * 0.24;
+      startLook = f.clone(); startLook.y = f.y * 0.75;
+    }
+    const startQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(startPos, startLook, new THREE.Vector3(0, 1, 0)));
     this.path = { startPos, startQ };
     if (instant || matchMedia('(prefers-reduced-motion: reduce)').matches) { this.fly = null; return; }
     this.fly = { t0: this.clock.getElapsedTime(), dur: 1.9, startPos, startQ };

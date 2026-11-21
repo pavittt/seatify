@@ -18,19 +18,23 @@ Pick a show or a venue, choose a price band on the seat map, tap a section and a
 
 ## The homepage
 
-The homepage is a scroll story rather than a list of cards:
+The homepage is a scroll story. Every section has its own scroll scene, each one rebuilt with Seatify's own content from a technique on the reference sites:
 
-1. **Hero** with a Vanta.js fog backdrop in stage colours, split-letter headline and a wordmark whose width animates in (Archivo's variable `wdth` axis).
-2. **Fly-in**: the section pins and your scroll drives the real three.js scene, dropping the camera out of the sky into Sec 115, Row K, with a camera-viewfinder HUD and three steps (pick a seat, fly in, know before).
-3. **Marquee** of cities and venues whose speed follows your scroll velocity.
-4. **Shows** scroll sideways while the section is pinned (desktop) or swipe (phone), with tilt-on-hover cards and parallax images.
-5. **Manifesto** that lights up word by word, a **seat comparison** table, and a **venue index** with a cursor-following preview image.
+1. **Stage (from Danilo De Marco):** after the preloader and a violet curtain lift, a live three.js concert plays in a rounded frame. As you scroll, the frame grows to full screen, the headline splits apart, and the camera flies from a crane shot over the crowd into Sec 115, Row K. A viewfinder HUD and three steps (pick, fly, know) go with it.
+2. **Crossing tapes (from Airborne):** a lime band and a pink band cross at an angle. They carry the cities and venues, and their speed and skew follow how fast you scroll.
+3. **Split title with tumbling cards (from Bleibtgleich):** "Shows 26—27" pulls apart while show cards tumble up through it in 3D.
+4. **Drag gallery (from Niccolò Miranda):** the shows scroll sideways while the section is pinned, or you can drag them with inertia. Phones swipe instead. Cards tilt and catch a glare under the pointer.
+5. **Cube of seat views (from Ning H.):** a tiny cube grows and turns face by face as you scroll. Each face is a seat view at a different venue, and a giant outline serif marquee runs behind it.
+6. **Lines that light up (from Airborne):** the "flat map lies" manifesto sits on a hot pink panel, and its lines light up one by one.
+7. **Spotlight comparison (from Thibaut):** a coloured spotlight follows the pointer. The view image opens from an inset to full size, and the numbers count up.
+8. **Venue index on a lime panel:** rows fill with ink on hover and a preview image follows the cursor.
+9. **Footer (from Danilo De Marco):** a violet and pink Vanta fog plays behind it, and the SEATIFY wordmark fills with lime from the bottom as you reach the end.
 
-Booking screens open as full-screen layers over the homepage with a wipe transition, and Escape steps back.
+A fixed sticker spins faster while you scroll and opens a seat view (from Airborne). Buttons have a fill that sweeps up and a label that rolls over. Booking screens open as full-screen layers over the homepage with a wipe transition, and Escape steps back.
 
-**Libraries:** GSAP 3.12.5 + ScrollTrigger (cdnjs), Locomotive Scroll 5 beta, which runs on Lenis for smooth scrolling (jsDelivr), Vanta.js 0.5.24 FOG (jsDelivr), three.js 0.160.0. The React Bits patterns used (SplitText, ScrollReveal, ScrollVelocity, Magnet, TiltedCard, Counter) are re-written in plain JS in `js/home.js`, so there is still no build step. Everything respects `prefers-reduced-motion`.
+**Libraries:** GSAP 3.12.5 + ScrollTrigger (cdnjs), Locomotive Scroll 5 beta, which runs on Lenis for smooth scrolling (jsDelivr), Vanta.js 0.5.24 FOG (jsDelivr), three.js 0.160.0. The React Bits patterns used (SplitText, ScrollVelocity, Magnet, TiltedCard, Counter) are re-written in plain JS in `js/home.js`, so there is still no build step. Everything respects `prefers-reduced-motion`.
 
-**Look:** monochrome near-black and bone with one acid-lime signal colour (prices, buttons) and a soft lavender secondary. Archivo at medium weight in sentence case for display, Instrument Serif italic for accent words, Geist and Geist Mono for body and data.
+**Look:** a night palette of ink and cream, with acid lime, hot pink and electric violet as big rounded colour panels. Display type is Archivo at its heaviest weight and widest width, in caps, mixed with Instrument Serif italic letters. Body text is Geist and data is Geist Mono, with a fine film grain over everything.
 
 **Seat view realism:** the camera aims and zooms so the whole stage is in frame from any seat. The stage has box truss towers and roof grid, an LED main wall with visible pixel pitch, LED columns, flown IMAG side screens with a live camera feed, curved line-array PA hangs, subs, a barricade, a blocky band with drum riser and amps, moving-head fixtures whose beams change cues every 8 seconds, haze, and bloom post-processing (three.js UnrealBloomPass). The crowd dresses dark like a real gig crowd and holds up phone lights.
 

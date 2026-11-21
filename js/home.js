@@ -1,5 +1,14 @@
-// The scrolling home page: smooth scroll (Locomotive Scroll v5, which runs on Lenis),
-// GSAP + ScrollTrigger scenes, a Vanta fog hero and a scroll-driven 3D fly-in.
+// The scrolling home page (v4). Smooth scroll is Locomotive Scroll v5 (which runs on Lenis); every
+// section is a GSAP ScrollTrigger scene. Techniques are recreated from the reference sites with
+// Seatify's own content:
+//   stage   – live 3D concert in a frame that grows to full bleed, then flies into a seat (Danilo De Marco)
+//   tapes   – two crossing colour bands whose speed and skew follow scroll velocity (Airborne)
+//   swarm   – the title splits apart while show cards tumble up in 3D (Bleibtgleich)
+//   shows   – a sideways gallery you can drag with inertia (Niccolò Miranda)
+//   cube    – a tiny cube of seat views grows and turns over an outline serif marquee (Ning H.)
+//   lines   – manifesto lines light up one by one on a colour panel (Airborne)
+//   compare – a coloured spotlight follows the pointer (Thibaut)
+//   footer  – Vanta fog and a wordmark that fills from the bottom (Danilo De Marco)
 import * as THREE from 'three';
 import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { priceOf, fmtINR, viewStats, zoneSpot } from './model.js';
@@ -9,13 +18,16 @@ import { openMap, getModel, openDemo } from './app.js';
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const clamp01 = (x) => Math.max(0, Math.min(1, x));
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const finePointer = matchMedia('(pointer: fine)').matches;
 const hasGsap = !!window.gsap && !!window.ScrollTrigger;
-if (hasGsap) gsap.registerPlugin(ScrollTrigger);
+const motion = hasGsap && !reduce;
+if (hasGsap) { gsap.registerPlugin(ScrollTrigger); gsap.ticker.lagSmoothing(0); }
 const cityOf = (v) => v.city.split(' (')[0];
 const venueById = (id) => VENUES.find((v) => v.id === id);
 const img = (id) => `assets/venues/${id}.jpg`;
+const rnd = (a, b) => a + Math.random() * (b - a);
 
 // ---------- smooth scroll ----------
 let loco = null, lenis = null, velocity = 0;
@@ -26,20 +38,21 @@ if (!reduce && window.LocomotiveScroll) {
   });
   lenis = loco.lenisInstance;
 }
+const scrollY_ = () => (lenis ? lenis.scroll : window.scrollY);
+const scrollToY = (y, opts = {}) => { if (lenis) lenis.scrollTo(y, opts); else window.scrollTo(0, y); };
 const scrollToEl = (sel) => { const el = $(sel); if (!el) return; if (loco) loco.scrollTo(el, { duration: 1.4 }); else el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' }); };
 for (const a of $$('a[data-scroll-to]')) a.addEventListener('click', (e) => { e.preventDefault(); scrollToEl(a.getAttribute('href')); });
 
-// pause the page while the map or seat view is open
 window.addEventListener('seatify:layer', (e) => {
   if (e.detail.open) { loco?.stop(); fly.view?.stop(); }
   else { loco?.start(); if (fly.visible) fly.view?.start(); if (hasGsap) ScrollTrigger.refresh(); }
 });
 
-// ---------- tiny helpers ----------
+// ---------- helpers ----------
 function splitChars(el) {
   const text = el.textContent; el.textContent = ''; el.setAttribute('data-split', '');
-  const words = text.split(/(\s+)/);
-  for (const w of words) {
+  for (const w of text.split(/(\s+)/)) {
+    if (!w) continue;
     if (/^\s+$/.test(w)) { el.appendChild(document.createTextNode(' ')); continue; }
     const ws = document.createElement('span'); ws.className = 'w';
     for (const ch of w) { const c = document.createElement('span'); c.className = 'ch'; c.textContent = ch; ws.appendChild(c); }
@@ -47,15 +60,8 @@ function splitChars(el) {
   }
   return $$('.ch', el);
 }
-function splitWords(el) {
-  const text = el.textContent.trim(); el.textContent = '';
-  return text.split(/\s+/).map((t, i) => { const s = document.createElement('span'); s.className = 'rw'; s.textContent = t; el.appendChild(s); el.appendChild(document.createTextNode(' ')); return s; });
-}
-function fitText(el, maxPx = 2000) {
-  const parent = el.parentElement; el.style.fontSize = '100px';
-  const w = el.scrollWidth; const target = parent.clientWidth;
-  el.style.fontSize = Math.min(maxPx, (100 * target) / w) + 'px';
-}
+// buttons: the label rolls up and a fill sweeps in from below
+for (const t of $$('.btn-t')) { const s = document.createElement('span'); s.textContent = t.textContent; t.textContent = ''; t.appendChild(s); }
 
 // ---------- clock ----------
 const clock = $('#clock');
@@ -64,101 +70,127 @@ tick(); setInterval(tick, 15000);
 
 // ---------- CTAs ----------
 const firstShow = SHOWS[0];
-$('#nav-cta').onclick = () => openMap({ show: firstShow, venue: venueById(firstShow.venue), layout: firstShow.layout });
-$('#foot-cta').onclick = $('#nav-cta').onclick;
+const openFirst = () => openMap({ show: firstShow, venue: venueById(firstShow.venue), layout: firstShow.layout });
+$('#nav-cta').onclick = openFirst;
+$('#hero-cta').onclick = openFirst;
+$('#foot-cta').onclick = openFirst;
+$('#hero-demo').onclick = () => openDemo();
 $('#hero-sticker').onclick = () => openDemo();
 
-// ---------- hero ----------
-const wm = $('.wm-split');
-const wmChars = splitChars(wm);
+// ---------- STAGE: live 3D in a frame that grows, then flies into a seat ----------
 const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
-const fitWordmark = () => fitText(wm);
-fitWordmark(); addEventListener('resize', fitWordmark);
-document.fonts?.ready.then(fitWordmark);
-
-let vanta = null;
-function startVanta() {
-  if (reduce || !window.VANTA?.FOG) return;
-  try {
-    vanta = VANTA.FOG({
-      el: '#vanta', THREE, mouseControls: true, touchControls: true, gyroControls: false,
-      minHeight: 200, minWidth: 200, highlightColor: 0x5a5a56, midtoneColor: 0x2b2b2a, lowlightColor: 0x161616, baseColor: 0x0a0a0a,
-      blurFactor: 0.62, speed: 1.1, zoom: 0.85,
-    });
-  } catch (err) { console.warn('Vanta fog could not start', err); }
-}
-
-// ---------- fly-in 3D section ----------
-const fly = { view: null, visible: false, built: false };
+const fly = { view: null, visible: true, built: false };
 function buildFly() {
   const v = venueById('nms');
   const model = getModel(v, 'catwalk');
   const sec = model.sections.filter((s) => s.tierIdx === 0 && !s.closed && s.availability !== 'soldout').sort((a, b) => Math.abs(a.phi - 38) - Math.abs(b.phi - 38))[0];
   const row = sec.getRows()[9]; const seat = row.seats[Math.floor(row.seats.length / 2)];
-  const view = new SeatView($('#fly-canvas'), { interactive: false, background: '#0c0b0e' });
+  const view = new SeatView($('#fly-canvas'), { interactive: false, background: '#07060c' });
   view.showTitle = firstShow.artist;
+  view.heroStart = true;
   view.load(model);
   view.buildCrowd({ x: seat.x, y: seat.y, z: seat.z, seat }, { cap: finePointer ? 26000 : 11000 });
   view.flyTo({ x: seat.x, y: seat.y, z: seat.z }, { instant: true });
   view.scrub(0);
+  view.start();
   fly.view = view; fly.built = true;
   fly.label = `SEC ${sec.id} · ROW ${row.label} · SEAT ${seat.n}`;
-  const s = viewStats(model, { x: seat.x, y: seat.y, z: seat.z });
-  fly.stats = s;
+  fly.stats = viewStats(model, { x: seat.x, y: seat.y, z: seat.z });
 }
 
-function setupFly() {
+function setupStage() {
+  const pin = $('.stage-pin'), frame = $('#stage-frame');
   const steps = $$('.step'); const bar = $('#fly-bar');
   const hudAlt = $('#hud-alt'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
-  let lastStep = -1;
+  let last = -2;
   const setStep = (i) => {
-    if (i === lastStep) return; lastStep = i;
+    if (i === last) return; last = i;
     steps.forEach((el, k) => el.classList.toggle('on', k === i));
-    hudCount.textContent = `0${i + 1} — 03`;
+    if (i >= 0) {
+      hudCount.textContent = `0${i + 1} — 03`;
+      if (motion) gsap.fromTo(steps[i].children, { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.8, stagger: 0.07, ease: 'expo.out', overwrite: true });
+    }
   };
-  setStep(0);
   const update = (p) => {
-    fly.view?.scrub(Math.min(1, p * 1.18));
-    setStep(p < 0.34 ? 0 : p < 0.7 ? 1 : 2);
-    bar.style.transform = `scaleX(${p})`;
+    const q = clamp01((p - 0.16) / 0.8);
+    fly.view?.scrub(Math.min(1, q * 1.12));
+    const sv = clamp01((p - 0.18) / 0.08);
+    pin.style.setProperty('--steps', sv.toFixed(3));
+    setStep(sv < 0.5 ? -1 : q < 0.36 ? 0 : q < 0.72 ? 1 : 2);
+    bar.style.transform = `scaleX(${q})`;
     if (fly.view) hudAlt.textContent = `ALT ${Math.max(0, Math.round(fly.view.camera.position.y))} M`;
-    hudSeat.textContent = p > 0.55 && fly.label ? fly.label + (p > 0.78 ? ` · ${Math.round(fly.stats.dist)} M TO STAGE · CLEAR VIEW` : '') : 'SEC — · ROW — · SEAT —';
+    hudSeat.textContent = q > 0.55 && fly.label ? fly.label + (q > 0.8 ? ` · ${Math.round(fly.stats.dist)} M TO STAGE` : '') : 'SEC — · ROW — · SEAT —';
   };
-  if (!hasGsap) return;
-  ScrollTrigger.create({
-    trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * (reduce ? 1 : 2.6), pin: '.fly-pin', scrub: reduce ? false : 0.6,
-    onUpdate: (self) => update(self.progress),
+  if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); return; }
+  const cs = getComputedStyle(frame);
+  const start = { '--ft': cs.getPropertyValue('--ft').trim(), '--fx': cs.getPropertyValue('--fx').trim(), '--fb': cs.getPropertyValue('--fb').trim(), '--fr': cs.getPropertyValue('--fr').trim() };
+  const lines = $$('.ht-line');
+  const tl = gsap.timeline({
+    defaults: { ease: 'none' },
+    scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.2, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
   });
+  tl.fromTo(frame, start, { '--ft': '0%', '--fx': '0%', '--fb': '0%', '--fr': '0px', duration: 0.2 }, 0)
+    .to(lines[0], { xPercent: -40, opacity: 0, duration: 0.16 }, 0.01)
+    .to(lines[1], { scale: 1.5, opacity: 0, transformOrigin: '30% 50%', duration: 0.16 }, 0.01)
+    .to(lines[2], { xPercent: 40, opacity: 0, duration: 0.16 }, 0.01)
+    .to('#hero-ov .kicker', { y: -40, opacity: 0, duration: 0.1 }, 0)
+    .to('.hero-row', { y: 80, opacity: 0, duration: 0.12 }, 0)
+    .to({}, { duration: 0.8 });
+  update(0);
   ScrollTrigger.create({
     trigger: '#how', start: 'top bottom', end: 'bottom top',
     onToggle: (self) => { fly.visible = self.isActive; if (self.isActive && !document.documentElement.classList.contains('layer-open')) fly.view?.start(); else fly.view?.stop(); },
   });
 }
 
-// ---------- marquee driven by scroll velocity ----------
-function setupMarquee() {
+// ---------- marquees: speed and skew follow scroll velocity ----------
+const tracks = [];
+function addTrack(el, html, copies, dir, base, skew = true) { el.innerHTML = html.repeat(copies); tracks.push({ el, copies, dir, base, x: 0, skew }); }
+function setupMarquees() {
   const cities = [...new Set(VENUES.map(cityOf))];
-  const a = $('#mq-a'), b = $('#mq-b');
-  const rowA = cities.map((c) => `<span>${esc(c)}</span><i>✦</i>`).join('');
-  const rowB = VENUES.map((v) => `<span>${esc(v.name)}</span><i>/</i>`).join('');
-  a.innerHTML = rowA + rowA + rowA; b.innerHTML = rowB + rowB;
-  const tracks = [{ el: a, x: 0, dir: 1, base: 0.6 }, { el: b, x: 0, dir: -1, base: 0.45 }];
+  addTrack($('#mq-a'), cities.map((c, i) => (i % 2 ? `<em>${esc(c)}</em>` : `<span>${esc(c)}</span>`) + '<i>✦</i>').join(''), 3, 1, 0.7);
+  addTrack($('#mq-b'), VENUES.map((v) => `<span>${esc(v.name)}</span><i>●</i>`).join(''), 2, -1, 0.55);
+  addTrack($('#mq-c'), VENUES.slice(0, 8).map((v) => `<span>${esc(cityOf(v))}</span>`).join(''), 2, 1, 0.35, false);
+  if (reduce) return;
   const step = () => {
-    const boost = Math.min(18, Math.abs(velocity) * 0.6);
+    const boost = Math.min(22, Math.abs(velocity) * 0.7);
     const sign = velocity < 0 ? -1 : 1;
     for (const t of tracks) {
-      const half = t.el.scrollWidth / (t.el === a ? 3 : 2);
+      const half = t.el.scrollWidth / t.copies;
       t.x -= (t.base + boost) * t.dir * sign;
       if (t.x <= -half) t.x += half; if (t.x > 0) t.x -= half;
-      t.el.style.transform = `translate3d(${t.x}px,0,0) skewX(${(-velocity * 0.15 * t.dir).toFixed(2)}deg)`;
+      t.el.style.transform = `translate3d(${t.x.toFixed(1)}px,0,0)` + (t.skew ? ` skewX(${(-velocity * 0.2 * t.dir).toFixed(2)}deg)` : '');
     }
     velocity *= 0.92;
-    if (!reduce) requestAnimationFrame(step);
+    stickerSpin(boost);
+    requestAnimationFrame(step);
   };
-  if (!reduce) requestAnimationFrame(step);
+  requestAnimationFrame(step);
 }
 
-// ---------- shows ----------
+// ---------- fixed sticker spins faster while you scroll ----------
+const stickerSvg = $('#hero-sticker svg'); let stickerA = 0;
+function stickerSpin(boost) { stickerA = (stickerA + 0.35 + boost * 0.6) % 360; stickerSvg.style.transform = `rotate(${stickerA.toFixed(1)}deg)`; }
+
+// ---------- SWARM: split title, show cards tumbling up in 3D ----------
+function setupSwarm() {
+  const sw = $('#swarm');
+  const lefts = [4, 68, 30, 82, 12, 52, 74, 22, 60, 38];
+  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%"><img src="${img(s.venue)}" alt="" loading="lazy" width="1600" height="1000"><span>${esc(s.artist)}</span></div>`).join('');
+  if (!motion) return;
+  const cards = $$('.sw-card', sw);
+  const tl = gsap.timeline({ defaults: { ease: 'none' }, scrollTrigger: { trigger: '.swarm-sec', start: 'top top', end: () => '+=' + innerHeight * 2.2, pin: '.swarm-pin', scrub: 0.8, invalidateOnRefresh: true } });
+  tl.to('.st-a', { xPercent: -95, duration: 1 }, 0)
+    .to('.st-b', { xPercent: 95, duration: 1 }, 0)
+    .fromTo('.st-mid', { scale: 1 }, { scale: 2.4, opacity: 0.0, duration: 1 }, 0);
+  cards.forEach((c, i) => {
+    tl.fromTo(c,
+      { y: () => innerHeight * 1.1, z: rnd(-500, 200), rotationX: rnd(-70, 70), rotationY: rnd(-80, 80), rotationZ: rnd(-30, 30) },
+      { y: () => -innerHeight * 0.55, z: rnd(-200, 350), rotationX: rnd(-40, 40), rotationY: rnd(-60, 60), rotationZ: rnd(-20, 20), duration: 0.55 }, 0.04 * i);
+  });
+}
+
+// ---------- SHOWS: horizontal gallery, scroll or drag ----------
 function setupShows() {
   const track = $('#shows-track');
   $('#shows-count').textContent = SHOWS.length;
@@ -167,7 +199,7 @@ function setupShows() {
     const from = Math.min(...Object.keys(CATS).map((c) => priceOf(v, c)));
     const tag = i === 0 ? 'Fast selling' : i % 4 === 1 ? 'Few left' : i % 3 === 0 ? 'New' : '';
     return `<button class="show-card tilt" type="button" data-cursor="Pick seats" data-i="${i}">
-      <span class="sc-img"><img src="${img(s.venue)}" alt="Seatify render of ${esc(v.name)} from the stands" loading="lazy" width="1600" height="1000"></span>
+      <span class="sc-img"><img src="${img(s.venue)}" alt="Seatify render of ${esc(v.name)} from the stands" loading="lazy" width="1600" height="1000" draggable="false"></span>
       ${tag ? `<span class="sc-tag mono">${tag}</span>` : ''}
       <span class="sc-n mono">${String(i + 1).padStart(2, '0')}</span>
       <span class="sc-meta mono">${esc(s.date)} · ${esc(cityOf(v))}</span>
@@ -176,60 +208,68 @@ function setupShows() {
       <span class="sc-foot mono"><span>${esc(LAYOUTS[s.layout].label)}</span><span>from ${fmtINR(from)}</span></span>
     </button>`;
   }).join('');
-  for (const el of $$('.show-card', track)) el.addEventListener('click', () => { const s = SHOWS[+el.dataset.i]; openMap({ show: s, venue: venueById(s.venue), layout: s.layout }); });
-  if (!hasGsap || reduce) return;
+  let moved = false;
+  for (const el of $$('.show-card', track)) el.addEventListener('click', (e) => { if (moved) { e.preventDefault(); return; } const s = SHOWS[+el.dataset.i]; openMap({ show: s, venue: venueById(s.venue), layout: s.layout }); });
+  if (!motion) return;
   const mm = gsap.matchMedia();
   mm.add('(min-width: 900px)', () => {
     const dist = () => track.scrollWidth - track.parentElement.clientWidth + 40;
     const tween = gsap.to(track, { x: () => -dist(), ease: 'none', scrollTrigger: { trigger: '.shows', pin: '.shows-pin', start: 'top top', end: () => '+=' + dist(), scrub: 0.8, invalidateOnRefresh: true } });
     for (const im of $$('.sc-img img', track)) gsap.fromTo(im, { xPercent: -8 }, { xPercent: 8, ease: 'none', scrollTrigger: { trigger: im.closest('.show-card'), containerAnimation: tween, start: 'left right', end: 'right left', scrub: true } });
+    // drag sideways: the drag moves the page scroll that drives the pin, and keeps gliding on release
+    let down = false, sx = 0, sy = 0, lx = 0, vx = 0;
+    const onDown = (e) => { if (e.pointerType !== 'mouse' || e.button !== 0) return; down = true; moved = false; sx = lx = e.clientX; sy = scrollY_(); vx = 0; };
+    const onMove = (e) => {
+      if (!down) return;
+      const dx = e.clientX - sx; if (Math.abs(dx) > 5) { moved = true; track.classList.add('dragging'); }
+      vx = e.clientX - lx; lx = e.clientX;
+      if (moved) scrollToY(sy - dx * 1.2, { immediate: true });
+    };
+    const onUp = () => { if (!down) return; down = false; track.classList.remove('dragging'); if (moved) scrollToY(scrollY_() - vx * 22, { duration: 1.1 }); setTimeout(() => { moved = false; }, 0); };
+    track.addEventListener('pointerdown', onDown); addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
+    return () => { track.removeEventListener('pointerdown', onDown); removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); };
   });
 }
 
-// ---------- tilt (cards) and magnetic buttons ----------
-function setupPointerFx() {
-  if (!finePointer || reduce) return;
-  document.addEventListener('pointermove', (e) => {
-    const card = e.target.closest?.('.tilt');
-    for (const c of $$('.tilt.hovering')) if (c !== card) { c.classList.remove('hovering'); c.style.transform = ''; c.querySelector('.sc-img')?.style.setProperty('transform', ''); }
-    if (!card) return;
-    const r = card.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
-    card.classList.add('hovering');
-    card.style.transform = `perspective(900px) rotateX(${(-y * 9).toFixed(2)}deg) rotateY(${(x * 11).toFixed(2)}deg) translateZ(0)`;
-    card.querySelector('.sc-img')?.style.setProperty('transform', `translate3d(${(-x * 10).toFixed(1)}px, ${(-y * 10).toFixed(1)}px, 30px)`);
+// ---------- CUBE: seat views on a cube that grows and turns ----------
+function setupCube() {
+  const ids = ['nms', 'dyp', 'jln', 'mahalaxmi', 'saltlake', 'nsci'];
+  const picks = ids.map(venueById).filter(Boolean);
+  while (picks.length < 6) picks.push(VENUES[picks.length]);
+  const cube = $('#cube'), label = $('#cube-label');
+  cube.innerHTML = picks.map((v) => `<div class="cube-face"><img src="${img(v.id)}" alt="Seatify render of the view at ${esc(v.name)}" loading="lazy" width="1600" height="1000"><span>${esc(v.name)}</span></div>`).join('');
+  const names = picks.map((v) => `${v.name} · ${cityOf(v)}`);
+  label.textContent = names[0];
+  if (!motion) { cube.style.transform = 'rotateX(-14deg) rotateY(24deg)'; return; }
+  const stops = [
+    { rx: -8, ry: 0, f: 0 }, { rx: -8, ry: -90, f: 1 }, { rx: -8, ry: -180, f: 2 }, { rx: -8, ry: -270, f: 3 }, { rx: -90, ry: -360, f: 4 }, { rx: 90, ry: -360, f: 5 },
+  ];
+  gsap.set(cube, { rotationX: -30, rotationY: 40 });
+  const tl = gsap.timeline({
+    defaults: { ease: 'power2.inOut' },
+    scrollTrigger: {
+      trigger: '.cube-sec', start: 'top top', end: () => '+=' + innerHeight * 3.4, pin: '.cube-pin', scrub: 0.8, invalidateOnRefresh: true,
+      onUpdate: (self) => { const t = self.progress * tl.duration(); let f = 0; for (const s of stops) if (t >= s.t - 0.25) f = s.f; if (label.dataset.f !== String(f)) { label.dataset.f = f; label.textContent = names[f]; if (motion) gsap.fromTo(label, { scale: 0.85 }, { scale: 1, duration: 0.5, ease: 'back.out(3)' }); } },
+    },
   });
-  for (const el of $$('.magnetic')) {
-    el.addEventListener('pointermove', (e) => {
-      const r = el.getBoundingClientRect(); const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2;
-      el.style.transform = `translate(${x * 0.28}px, ${y * 0.32}px)`;
-    });
-    el.addEventListener('pointerleave', () => { el.style.transform = ''; });
-  }
-  // custom cursor
-  const cur = $('#cursor'), label = $('#cursor-label');
-  document.documentElement.classList.add('has-cursor');
-  let cx = innerWidth / 2, cy = innerHeight / 2, tx = cx, ty = cy;
-  addEventListener('pointermove', (e) => {
-    tx = e.clientX; ty = e.clientY;
-    const t = e.target.closest?.('[data-cursor], button, a, .hit, .seat');
-    cur.classList.toggle('big', !!t?.dataset?.cursor);
-    cur.classList.toggle('link', !!t && !t.dataset?.cursor);
-    label.textContent = t?.dataset?.cursor || '';
-  });
-  const loop = () => { cx += (tx - cx) * 0.2; cy += (ty - cy) * 0.2; cur.style.transform = `translate3d(${cx}px, ${cy}px, 0)`; requestAnimationFrame(loop); };
-  loop();
+  tl.fromTo('.cube-scene', { scale: 0.16 }, { scale: 1, duration: 1.2, ease: 'power2.out' }, 0)
+    .to(cube, { rotationX: stops[0].rx, rotationY: stops[0].ry, duration: 1.2 }, 0);
+  stops[0].t = 1.2;
+  let t = 1.6;
+  for (const s of stops.slice(1)) { tl.to(cube, { rotationX: s.rx, rotationY: s.ry, duration: 0.8 }, t); s.t = t + 0.8; t += 1.2; }
+  tl.to({}, { duration: 0.4 });
+  gsap.fromTo('#mq-c', { xPercent: 0 }, { xPercent: -30, ease: 'none', scrollTrigger: { trigger: '.cube-sec', start: 'top top', end: () => '+=' + innerHeight * 3.4, scrub: true } });
 }
 
-// ---------- manifesto: words light up with scroll ----------
-function setupManifesto() {
-  const el = $('#manifesto');
-  const words = splitWords(el);
-  for (const w of words) if (/^(204|AK|tower,|seat|spot\.)/.test(w.textContent) || ['Block', 'Row'].includes(w.textContent)) w.classList.add('hl');
-  if (!hasGsap || reduce) return;
-  gsap.fromTo(words, { opacity: 0.12, filter: 'blur(6px)', yPercent: 12 }, { opacity: 1, filter: 'blur(0px)', yPercent: 0, stagger: 0.04, ease: 'none', scrollTrigger: { trigger: el, start: 'top 82%', end: 'bottom 40%', scrub: true } });
+// ---------- MANIFESTO: lines light up one after another ----------
+function setupLines() {
+  if (!motion) return;
+  const lis = $$('#lines li');
+  const tl = gsap.timeline({ scrollTrigger: { trigger: '#lines', start: 'top 78%', end: 'bottom 42%', scrub: true } });
+  lis.forEach((li, i) => tl.fromTo(li, { opacity: 0.2, x: -24 }, { opacity: 1, x: 0, duration: 1, ease: 'none' }, i));
 }
 
-// ---------- compare table with numbers from the 3D model ----------
+// ---------- COMPARE: live numbers from the 3D model + spotlight ----------
 function setupCompare() {
   const v = venueById('nms'); const m = getModel(v, 'catwalk');
   const pit = m.zones.find((z) => z.cat === 'PIT');
@@ -252,8 +292,14 @@ function setupCompare() {
   ];
   const t = $('#cmp-table');
   t.innerHTML = `<thead><tr><th scope="col"><span class="sr">Measure</span></th>${cols.map((c) => `<th scope="col"><i style="background:${CATS[c.cat].color}"></i>${esc(c.name)}<small>${esc(c.sub)}</small></th>`).join('')}</tr></thead>
-    <tbody>${rows.map(([label, get, fmt]) => `<tr><th scope="row">${label}</th>${cols.map((c) => { const n = get(c); return `<td data-n="${n}" data-f="${rows.findIndex((r) => r[0] === label)}">${fmt(n)}</td>`; }).join('')}</tr>`).join('')}</tbody>`;
-  if (!hasGsap || reduce) return;
+    <tbody>${rows.map(([label, get, fmt], ri) => `<tr><th scope="row">${label}</th>${cols.map((c) => { const n = get(c); return `<td data-n="${n}" data-f="${ri}">${fmt(n)}</td>`; }).join('')}</tr>`).join('')}</tbody>`;
+  if (finePointer && !reduce) {
+    const sec = $('.compare');
+    sec.addEventListener('pointermove', (e) => { const r = sec.getBoundingClientRect(); sec.style.setProperty('--gx', (e.clientX - r.left) + 'px'); sec.style.setProperty('--gy', (e.clientY - r.top) + 'px'); });
+  }
+  if (!motion) return;
+  gsap.fromTo('.cmp-shot', { clipPath: 'inset(16% 20% 16% 20% round 22px)' }, { clipPath: 'inset(0% 0% 0% 0% round 22px)', ease: 'none', scrollTrigger: { trigger: '.cmp-shot', start: 'top 95%', end: 'center 55%', scrub: true } });
+  gsap.fromTo('.cmp-shot img', { scale: 1.4 }, { scale: 1.05, ease: 'none', scrollTrigger: { trigger: '.cmp-shot', start: 'top bottom', end: 'bottom top', scrub: true } });
   ScrollTrigger.create({
     trigger: t, start: 'top 80%', once: true,
     onEnter: () => {
@@ -265,7 +311,7 @@ function setupCompare() {
   });
 }
 
-// ---------- venue index ----------
+// ---------- VENUES ----------
 let cityFilter = 'All';
 function renderVenues() {
   const cities = ['All', ...new Set(VENUES.map(cityOf))];
@@ -285,7 +331,7 @@ function renderVenues() {
   for (const b of $$('.v-row')) b.onclick = () => openMap({ show: null, venue: venueById(b.dataset.id), layout: 'end' });
 }
 function setupVenuePreview() {
-  if (!finePointer || reduce || !hasGsap) return;
+  if (!finePointer || !motion) return;
   const pv = $('#v-preview'), pimg = $('#v-preview-img');
   const xTo = gsap.quickTo(pv, 'x', { duration: 0.5, ease: 'power3' }), yTo = gsap.quickTo(pv, 'y', { duration: 0.5, ease: 'power3' });
   let lastX = 0;
@@ -299,36 +345,80 @@ function setupVenuePreview() {
   $('#v-index').addEventListener('pointerleave', () => pv.classList.remove('on'));
 }
 
-// ---------- reveals ----------
-function setupReveals() {
-  if (!hasGsap || reduce) return;
-  for (const el of $$('.sec-head .split')) {
-    const chars = splitChars(el);
-    gsap.from(chars, { yPercent: 115, rotate: 6, duration: 0.9, ease: 'expo.out', stagger: 0.018, scrollTrigger: { trigger: el, start: 'top 88%' } });
+// ---------- FOOTER: fog starts when you get close, wordmark fills from the bottom ----------
+let vanta = null;
+function startVanta() {
+  if (vanta || reduce || !window.VANTA?.FOG) return;
+  try {
+    vanta = VANTA.FOG({ el: '#foot-fog', THREE, mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200, minWidth: 200,
+      highlightColor: 0xff4fa0, midtoneColor: 0x6a4bff, lowlightColor: 0x1c0f4a, baseColor: 0x0d0b14, blurFactor: 0.6, speed: 1.3, zoom: 0.9 });
+  } catch (err) { console.warn('Vanta fog could not start', err); }
+}
+function setupFooter() {
+  if (!motion) { startVanta(); return; }
+  ScrollTrigger.create({ trigger: '.foot', start: 'top 150%', onEnter: startVanta });
+  gsap.fromTo('#fm-fill', { clipPath: 'inset(100% 0% 0% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top 60%', end: 'bottom bottom', scrub: true } });
+  gsap.from('.foot-mark', { yPercent: 40, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'bottom bottom', scrub: true } });
+}
+
+// ---------- pointer: card tilt + glare, magnetic buttons, cursor ----------
+function setupPointerFx() {
+  if (!finePointer || reduce) return;
+  document.addEventListener('pointermove', (e) => {
+    const card = e.target.closest?.('.tilt');
+    for (const c of $$('.tilt.hovering')) if (c !== card) { c.classList.remove('hovering'); c.style.transform = ''; c.querySelector('.sc-img')?.style.setProperty('transform', ''); }
+    if (!card || card.closest('.dragging')) return;
+    const r = card.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+    card.classList.add('hovering');
+    card.style.transform = `perspective(900px) rotateX(${(-y * 10).toFixed(2)}deg) rotateY(${(x * 12).toFixed(2)}deg) translateZ(0)`;
+    const im = card.querySelector('.sc-img');
+    im?.style.setProperty('transform', `translate3d(${(-x * 10).toFixed(1)}px, ${(-y * 10).toFixed(1)}px, 30px)`);
+    im?.style.setProperty('--mx', ((x + 0.5) * 100).toFixed(1) + '%'); im?.style.setProperty('--my', ((y + 0.5) * 100).toFixed(1) + '%');
+  });
+  for (const el of $$('.magnetic, .sticker')) {
+    el.addEventListener('pointermove', (e) => { const r = el.getBoundingClientRect(); el.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * 0.28}px, ${(e.clientY - r.top - r.height / 2) * 0.32}px)`; });
+    el.addEventListener('pointerleave', () => { el.style.transform = ''; });
   }
-  for (const el of $$('.reveal-up')) gsap.from(el, { y: 30, opacity: 0, duration: 1, ease: 'power3.out', delay: 0.9 });
+  const cur = $('#cursor'), label = $('#cursor-label');
+  document.documentElement.classList.add('has-cursor');
+  let cx = innerWidth / 2, cy = innerHeight / 2, tx = cx, ty = cy;
+  addEventListener('pointermove', (e) => {
+    tx = e.clientX; ty = e.clientY;
+    const t = e.target.closest?.('[data-cursor], button, a, .hit, .seat');
+    cur.classList.toggle('big', !!t?.dataset?.cursor);
+    cur.classList.toggle('link', !!t && !t.dataset?.cursor);
+    label.textContent = t?.dataset?.cursor || '';
+  });
+  const loop = () => { cx += (tx - cx) * 0.2; cy += (ty - cy) * 0.2; cur.style.transform = `translate3d(${cx}px, ${cy}px, 0)`; requestAnimationFrame(loop); };
+  loop();
+}
+
+// ---------- big headings: letters rise as they enter ----------
+function setupReveals() {
+  if (!motion) { document.documentElement.classList.add("scrolled"); return; }
+  for (const el of $$('.display.big .split, .cube-copy .split')) {
+    const chars = splitChars(el);
+    gsap.from(chars, { yPercent: 115, rotate: 8, duration: 1, ease: 'expo.out', stagger: 0.02, scrollTrigger: { trigger: el, start: 'top 90%' } });
+  }
   for (const el of $$('.v-row')) gsap.from(el, { y: 40, opacity: 0, duration: 0.8, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 94%' } });
-  // the hero wordmark drifts apart letter by letter as you scroll away
-  gsap.to(wmChars, { yPercent: (i) => (i % 2 ? -40 : 40) * (1 + i * 0.12), ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true } });
-  gsap.to('.hero-inner', { yPercent: -25, opacity: 0.2, ease: 'none', scrollTrigger: { trigger: '.hero', start: 'top top', end: 'bottom top', scrub: true } });
-  // footer wordmark stretches as it arrives (Archivo's width axis)
-  gsap.fromTo('.foot-mark', { '--wd': 62, yPercent: 30 }, { '--wd': 125, yPercent: 0, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'bottom bottom', scrub: true } });
-  // nav hides on the way down, returns on the way up
+  // colour panels round in as they arrive (Airborne)
+  for (const p of $$('.panel:not(.swarm-sec):not(.shows)')) gsap.fromTo(p, { scale: 0.94 }, { scale: 1, ease: 'none', scrollTrigger: { trigger: p, start: 'top bottom', end: 'top 40%', scrub: true } });
+  ScrollTrigger.create({ start: 240, end: 'max', onToggle: (self) => document.documentElement.classList.toggle('scrolled', self.isActive) });
   ScrollTrigger.create({ start: 120, end: 'max', onUpdate: (self) => $('#nav').classList.toggle('tucked', self.direction === 1 && self.scroll() > 200) });
 }
 
-// ---------- intro after the preloader ----------
+// ---------- intro: preloader lifts, violet curtain lifts, frame opens, title rises ----------
 function intro() {
   document.documentElement.classList.add('ready');
-  startVanta();
-  if (!hasGsap || reduce) return;
+  if (!motion) { $('#curtain')?.remove(); return; }
   const tl = gsap.timeline({ defaults: { ease: 'expo.out' } });
-  tl.from(heroChars, { yPercent: 120, rotate: 8, duration: 1.2, stagger: 0.025 }, 0.05)
-    .fromTo(wmChars, { '--wd': 62, yPercent: 105 }, { '--wd': 125, yPercent: 0, duration: 1.6, stagger: 0.05, onUpdate: fitWordmark }, 0.2)
-    .from('.nav > *', { y: -20, opacity: 0, duration: 0.8, stagger: 0.06 }, 0.4)
-    .from('#hero-sticker .sticker-core', { scale: 0, duration: 1.2 }, 0.7)
-    .from('#hero-sticker svg', { opacity: 0, duration: 1.2 }, 0.8)
-    .from('.scroll-cue', { opacity: 0, duration: 1 }, 1.1);
+  tl.to('#curtain', { clipPath: 'inset(0% 0% 100% 0%)', duration: 1.1, ease: 'expo.inOut', onComplete: () => $('#curtain')?.remove() }, 0.15)
+    .fromTo('#stage-frame', { '--it': '30%', '--ix': '26%', '--ib': '18%', '--ir': '160px' }, { '--it': '0%', '--ix': '0%', '--ib': '0%', '--ir': '0px', duration: 1.8, ease: 'expo.inOut' }, 0.35)
+    .from(heroChars, { yPercent: 120, duration: 1.3, stagger: 0.03 }, 0.75)
+    .from('.nav > *', { y: -20, opacity: 0, duration: 0.8, stagger: 0.06 }, 0.9)
+    .from(['.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.2)
+    .from('#hero-ov .kicker', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
+    .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.4);
 }
 
 function preload(work) {
@@ -338,24 +428,27 @@ function preload(work) {
   const draw = () => { fill.style.strokeDashoffset = C * (1 - shown.v / 100); count.textContent = String(Math.round(shown.v)).padStart(3, '0'); };
   draw();
   const done = () => {
-    if (hasGsap && !reduce) gsap.to(pre, { clipPath: 'inset(0 0 100% 0)', duration: 0.9, ease: 'expo.inOut', onComplete: () => pre.remove() });
+    if (motion) gsap.to(pre, { clipPath: 'inset(0 0 100% 0)', duration: 0.9, ease: 'expo.inOut', onComplete: () => pre.remove() });
     else pre.remove();
     intro();
   };
-  if (!hasGsap || reduce) { work(); done(); return; }
+  if (!motion) { try { work(); } catch (err) { console.error(err); } done(); return; }
   gsap.to(shown, { v: 70, duration: 0.7, ease: 'power2.out', onUpdate: draw, onComplete: () => {
     setTimeout(() => { try { work(); } catch (err) { console.error(err); } gsap.to(shown, { v: 100, duration: 0.45, ease: 'power2.in', onUpdate: draw, onComplete: done }); }, 30);
   } });
 }
 
 // ---------- boot ----------
-setupFly();
-setupMarquee();
+setupStage();
+setupMarquees();
+setupSwarm();
 setupShows();
-setupManifesto();
+setupCube();
+setupLines();
 setupCompare();
 renderVenues();
 setupVenuePreview();
 setupPointerFx();
 setupReveals();
+setupFooter();
 preload(() => { buildFly(); if (hasGsap) ScrollTrigger.refresh(); });
