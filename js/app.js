@@ -331,7 +331,7 @@ function renderViewSheet() {
 function renderRealPhotos(m, p) {
   const box = $('#view-real'); const list = REAL_PHOTOS[m.venue.id] || [];
   const fab = $('#view-realbtn');
-  if (!list.length) { box.hidden = true; box.innerHTML = ''; if (fab) fab.hidden = true; return; }
+  if (!list.length) { box.hidden = false; box.innerHTML = `<div class="real-head"><b>Real photos</b><span>No free photos of ${esc(m.venue.name)} yet</span></div>`; if (fab) fab.hidden = true; return; }
   const nT = m.tierInfo?.length || 1, ti = p.section?.tierIdx;
   const want = p.type === 'zone' ? 'floor' : ti === 0 ? 'lower' : ti === nT - 1 ? 'upper' : 'lower';
   const rank = (x) => (x.tier === want ? 0 : x.tier === 'lower' && want === 'floor' ? 1 : 2);
