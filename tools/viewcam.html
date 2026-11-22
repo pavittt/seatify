@@ -34,7 +34,7 @@ if (P.get('empty')) { view.setEmpty(true); view.houseMix = 1; }
 if (P.get('time') === 'day') {
   // daylight, to line up with daytime reference photos (test camera only)
   const sky = new THREE.Color('#9fb8d6'); view.scene.background = sky; view.scene.fog.color = sky;
-  view.anim.push(() => { view.hemi.intensity = 2.6; view.hemi.color.set('#dfe9ff'); view.hemi.groundColor.set('#7a6a55'); view.flood.intensity = 2.4; view.flood.color.set('#fff6e8'); view.renderer.toneMappingExposure = 1.0; view.bloom.strength = 0.15; });
+  view.anim.push(() => { view.hemi.intensity = 1.1; view.hemi.color.set('#dfe9ff'); view.hemi.groundColor.set('#7a6a55'); view.flood.intensity = 2.8; view.flood.color.set('#fff6e8'); view.renderer.toneMappingExposure = 1.0; });
 }
 view.flyTo(point, { instant: true });
 if (P.get('look')) {

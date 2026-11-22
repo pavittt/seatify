@@ -1,6 +1,7 @@
 // The 3D "view from your seat": stepped stands, stage, lights and a crowd of
 // chunky toy-block people rendered with instancing.
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CATS } from './data/venues.js';
 import { ROW_D, EYE, hash01, priceOf, fmtINR } from './model.js';
 import { createCrowdMesh } from './crowd.js';
@@ -70,7 +71,15 @@ export class SeatView {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.9;
+    // soft shadows from the stadium floodlights / moon, and an image-based environment so concrete,
+    // steel and plastic pick up believable reflections instead of looking like flat paint
+    this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // the venue never moves, so draw the shadow map once per venue rather than every frame
+    this.renderer.shadowMap.autoUpdate = false;
+    this.touch = matchMedia('(pointer: coarse)').matches;
     this.scene = new THREE.Scene();
+    const pm = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; pm.dispose();
     this.scene.background = new THREE.Color('#07080f');
     // light night air: the far stand of a 230 m bowl should still be there, just a little hazy
     this.scene.fog = new THREE.Fog('#07080f', 280, 1600);
@@ -83,7 +92,7 @@ export class SeatView {
     this.anim = [];
     this.yaw = 0; this.pitch = 0; this.fov = 50;
     // light-up wave across the chairs: seats within `reveal` metres of `revealOrigin` are lit
-    this.reveal = { value: 1e6 }; this.revealOrigin = { value: new THREE.Vector2() };
+    this.reveal = { value: 1e6 }; this.chairFar = { value: 1e6 }; this.standFill = { value: 0 }; this.revealOrigin = { value: new THREE.Vector2() };
     this.running = false;
     this.toyHeads = false;
     if (interactive) this._bindControls();
@@ -119,10 +128,18 @@ export class SeatView {
     this.hemi = new THREE.HemisphereLight('#7f8fc7', '#2a2228', 1.0); this.root.add(this.hemi);
     this.house = new THREE.AmbientLight('#e8eeff', 0); this.root.add(this.house);
     // stadium floodlights, on with the house lights (Empty venue / walk-in)
-    this.flood = new THREE.DirectionalLight('#fff3df', 0); this.flood.position.set(70, 140, 50); this.root.add(this.flood);
+    this.flood = new THREE.DirectionalLight('#fff3df', 0); this.flood.position.set(70, 140, 50); this.root.add(this.flood, this.flood.target);
+    {
+      // one shadow-casting key light: floodlights with the house lights up, moonlight in the show
+      const f = model.field || {}; const R = Math.max(f.a || f.w / 2 || 80, f.b || f.d / 2 || 80) + 90;
+      const sc = this.flood.shadow.camera; sc.left = -R; sc.right = R; sc.top = R; sc.bottom = -R; sc.near = 10; sc.far = 700;
+      this.flood.castShadow = true; this.flood.shadow.mapSize.set(this.touch ? 2048 : 4096, this.touch ? 2048 : 4096);
+      this.flood.shadow.bias = -0.0004; this.flood.shadow.normalBias = 0.06; this.flood.shadow.radius = 3;
+      this.flood.position.set(R * 0.9, 190, -R * 0.55); // low late-sun / moon angle so roofs throw long shadows over the stands
+    }
     // the arena's working lights: a wash from high over the middle of the bowl
     this.ovLight = new THREE.PointLight('#d6e2ff', 0, 0, 0); this.ovLight.position.set(0, 70, 0); this.root.add(this.ovLight);
-    const moon = new THREE.DirectionalLight('#b9c6ff', 0.45); moon.position.set(-80, 160, 120); this.root.add(moon);
+    const moon = new THREE.DirectionalLight('#b9c6ff', 0.15); moon.position.set(-80, 160, 120); this.root.add(moon);
     // light spilling off the stage onto the crowd's faces
     const spill = new THREE.DirectionalLight('#ffb38a', 0.55); spill.position.set(0, 30, model.stage.type === 'center' ? 0 : model.stage.zBack); spill.target.position.set(0, 0, 60); this.root.add(spill, spill.target);
     this.anim.push((t) => spill.color.setHSL((0.03 + t * 0.02) % 1, 0.6, 0.65));
@@ -141,6 +158,36 @@ export class SeatView {
     this._buildSeatField(model);
     this._buildPickers(model);
     this.marker = null; this.hover = null; this._hiddenIdx = null;
+    this._realMaterials();
+    this.renderer.shadowMap.needsUpdate = true;
+    this._applyHouse();
+  }
+
+  // Swap the quick matte materials for physically based ones (rough concrete, painted steel,
+  // satin plastic) lit by the environment, and let the big structures cast and catch shadows.
+  _realMaterials() {
+    const done = new Map(); this._envMats = [];
+    this.root.traverse((o) => {
+      if (!o.isMesh || o.userData.crowd) return;
+      const m = o.material;
+      if (m && m.isMeshLambertMaterial) {
+        let n = done.get(m);
+        if (!n) {
+          n = new THREE.MeshStandardMaterial({
+            color: m.color, map: m.map, vertexColors: m.vertexColors, side: m.side, transparent: m.transparent, opacity: m.opacity,
+            emissive: m.emissive, emissiveMap: m.emissiveMap, emissiveIntensity: m.emissiveIntensity, depthWrite: m.depthWrite,
+            polygonOffset: m.polygonOffset, polygonOffsetFactor: m.polygonOffsetFactor, polygonOffsetUnits: m.polygonOffsetUnits,
+            roughness: m.userData.roughness ?? 0.88, metalness: m.userData.metalness ?? 0, envMapIntensity: 0.6, fog: m.fog,
+          });
+          if (m.onBeforeCompile) n.onBeforeCompile = m.onBeforeCompile;
+          n.userData = m.userData; done.set(m, n); this._envMats.push(n);
+        }
+        o.material = n;
+      }
+      o.receiveShadow = true;
+      o.castShadow = true;
+      if (o.material?.transparent) o.castShadow = false;
+    });
   }
 
   _buildSky(model) {
@@ -163,8 +210,9 @@ export class SeatView {
     if (this._grass) return this._grass;
     const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
     for (let i = 0; i < 512; i++) {
-      const s = 0.5 + 0.5 * Math.cos((i / 512) * Math.PI * 2);
-      x.fillStyle = `rgb(${Math.round(58 + 14 * s)},${Math.round(100 + 18 * s)},${Math.round(48 + 8 * s)})`;
+      // mown stripes: light and dark bands with a soft edge, as the roller lays the grass both ways
+      const c0 = Math.cos((i / 512) * Math.PI * 2), s = 0.5 + 0.5 * Math.tanh(c0 * 4);
+      x.fillStyle = `rgb(${Math.round(74 + 14 * s)},${Math.round(116 + 20 * s)},${Math.round(46 + 8 * s)})`;
       x.fillRect(i, 0, 1, 512);
     }
     const img = x.getImageData(0, 0, 512, 512), d = img.data;
@@ -262,7 +310,13 @@ export class SeatView {
     const { a, b, n } = model.field;
     const pos = [], col = [];
     const c = new THREE.Color();
-    const quad = (p1, p2, p3, p4, color) => { pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4); for (let i = 0; i < 6; i++) col.push(color.r, color.g, color.b); };
+    // k = per-corner light (baked ambient occlusion): the inside corner where a tread meets the next
+    // riser gets less sky, which is what makes real terraces read as steps from far away
+    const quad = (p1, p2, p3, p4, color, k = null) => {
+      pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
+      const ks = k ? [k[0], k[1], k[2], k[0], k[2], k[3]] : [1, 1, 1, 1, 1, 1];
+      for (let i = 0; i < 6; i++) col.push(color.r * ks[i], color.g * ks[i], color.b * ks[i]);
+    };
     const ribbonPos = [], boxQuads = [];
     for (const s of model.sections) {
       if (s.kind !== 'arc') continue;
@@ -291,13 +345,15 @@ export class SeatView {
           const C = sePoint(a + dOut, b + dOut, n, tb), D = sePoint(a + dOut, b + dOut, n, ta);
           const aisle = i === 0;
           let tc = c;
-          if (mixed) tc = new THREE.Color(pal[Math.floor(hash01('m' + secIdx + r + i) * pal.length)]).multiplyScalar((r % 2 ? 0.86 : 1) * (s.closed ? 0.45 : 1));
+          // mixed-colour seats (Salt Lake) blend to one muted tone from a distance; the chairs
+          // up close keep their own colours
+          if (mixed) { tc = new THREE.Color(0, 0, 0); for (const pc of pal) tc.add(new THREE.Color(pc).multiplyScalar(1 / pal.length)); tc.lerp(new THREE.Color('#6a6e72'), 0.35).multiplyScalar((r % 2 ? 0.9 : 1) * (s.closed ? 0.45 : 1) * (0.92 + 0.16 * hash01('m' + secIdx + i))); }
           if (zig) {
             // the big chevrons picked out in the seats, as in the Motera upper tier
             const u = (secIdx % 36) * M + i, P = 30, tri = Math.abs((u % P) - P / 2) / (P / 2);
             if (Math.abs(r - (4 + tri * (s.rowsCount - 10))) < 2.2) tc = cZig;
           }
-          quad([A[0], y, A[1]], [B[0], y, B[1]], [C[0], y, C[1]], [D[0], y, D[1]], aisle ? concrete : tc);
+          quad([A[0], y, A[1]], [B[0], y, B[1]], [C[0], y, C[1]], [D[0], y, D[1]], aisle ? concrete : tc, [1, 1, 0.78, 0.78]);
           if (!aisle && !s.closed && this.lowDetail) {
             // a row of plastic seat backs near the back of each tread
             const P = [A[0] + (D[0] - A[0]) * 0.7, A[1] + (D[1] - A[1]) * 0.7], Q = [B[0] + (C[0] - B[0]) * 0.7, B[1] + (C[1] - B[1]) * 0.7];
@@ -305,7 +361,7 @@ export class SeatView {
             quad([P[0], y + 0.42, P[1]], [Q[0], y + 0.42, Q[1]], [Q[0] + (C[0] - Q[0]) * 0.4, y + 0.44, Q[1] + (C[1] - Q[1]) * 0.4], [P[0] + (D[0] - P[0]) * 0.4, y + 0.44, P[1] + (D[1] - P[1]) * 0.4], seatTop);
           }
           const top = r === s.rowsCount - 1 ? y + 2.2 : yNext;
-          quad([D[0], y, D[1]], [C[0], y, C[1]], [C[0], top, C[1]], [D[0], top, D[1]], riser);
+          quad([D[0], y, D[1]], [C[0], y, C[1]], [C[0], top, C[1]], [D[0], top, D[1]], aisle ? riser : tc.clone().multiplyScalar(0.92), [0.6, 0.6, 1, 1]);
           if (r === 0) {
             const yb = s.tierIdx === 0 ? 0 : y - 1.3;
             const fc = new THREE.Color('#15161d');
@@ -338,8 +394,24 @@ export class SeatView {
     // close up you see the grey concrete steps between the chairs; far away the chairs are too
     // small to draw, so the steps take the seat colour and the stand reads the way it does in photos
     standMat.onBeforeCompile = (sh) => {
-      sh.vertexShader = 'varying float vCamD;\n' + sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n  vCamD = -mvPosition.z;');
-      sh.fragmentShader = 'varying float vCamD;\n' + sh.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n  diffuseColor.rgb = mix(vec3(0.36, 0.36, 0.38), diffuseColor.rgb, smoothstep(10.0, 45.0, vCamD));');
+      sh.uniforms.uFill = this.standFill;
+      sh.vertexShader = 'varying float vCamD; varying vec3 vWPos;\n' + sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n  vCamD = -mvPosition.z; vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = 'uniform float uFill; varying float vCamD; varying vec3 vWPos;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+  diffuseColor.rgb = mix(vec3(0.36, 0.36, 0.38), diffuseColor.rgb, smoothstep(10.0, 45.0, vCamD));
+  {
+    float gr = fract(sin(dot(floor(vWPos * 40.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float st = 0.5 + 0.25 * sin(vWPos.x * 0.21 + 2.0 * sin(vWPos.z * 0.13)) + 0.25 * sin(vWPos.z * 0.17 + vWPos.y * 0.3);
+    diffuseColor.rgb *= 0.92 + 0.1 * (gr - 0.5) * (1.0 - smoothstep(4.0, 15.0, vCamD)) + 0.1 * (st - 0.5);
+    // show night: the far stands are full of people. Dark clothes with a scatter of lighter shirts
+    // and faces at about 0.55 m spacing, smoothed out with distance so it never shimmers.
+    vec3 cell = floor(vec3(vWPos.x, vWPos.y * 1.6, vWPos.z) / 0.4);
+    float h1 = fract(sin(dot(cell, vec3(41.3, 289.1, 17.7))) * 15731.7);
+    float h2 = fract(sin(dot(cell, vec3(7.9, 113.5, 271.9))) * 7431.3);
+    vec3 shirt = mix(vec3(0.06, 0.06, 0.07), mix(vec3(0.42, 0.36, 0.3), vec3(0.5, 0.12, 0.16), step(0.6, h2)), step(0.72, h1));
+    float far = smoothstep(15.0, 90.0, vCamD);
+    vec3 people = mix(shirt, vec3(0.1, 0.09, 0.1), far);
+    diffuseColor.rgb = mix(diffuseColor.rgb, people, uFill * smoothstep(18.0, 30.0, vCamD));
+  }`);
     };
     const stands = new THREE.Mesh(g, standMat);
     stands.userData.label = 'Tier above';
@@ -457,7 +529,13 @@ export class SeatView {
 
   _buildStands(model) {
     const pos = [], col = [];
-    const quad = (p1, p2, p3, p4, c) => { pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4); for (let i = 0; i < 6; i++) col.push(c.r, c.g, c.b); };
+    // k = per-corner light (baked ambient occlusion): the inside corner where a tread meets the next
+    // riser gets less sky, which is what makes real terraces read as steps from far away
+    const quad = (p1, p2, p3, p4, c, k = null) => {
+      pos.push(...p1, ...p2, ...p3, ...p1, ...p3, ...p4);
+      const ks = k ? [k[0], k[1], k[2], k[0], k[2], k[3]] : [1, 1, 1, 1, 1, 1];
+      for (let i = 0; i < 6; i++) col.push(c.r * ks[i], c.g * ks[i], c.b * ks[i]);
+    };
     for (const s of model.sections) {
       if (s.kind !== 'line') continue;
       const [fx, fz] = s.stand.f, [rx, rz] = s.right, o = s.stand.origin;
@@ -1053,9 +1131,11 @@ export class SeatView {
     }
     const fieldMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.5, metalness: 0, side: THREE.DoubleSide });
     fieldMat.onBeforeCompile = (sh) => {
-      sh.uniforms.uReveal = this.reveal; sh.uniforms.uOrigin = this.revealOrigin;
-      sh.vertexShader = 'uniform vec2 uOrigin;\nvarying float vDist;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vDist = distance(vec2(instanceMatrix[3][0], instanceMatrix[3][2]), uOrigin);');
-      sh.fragmentShader = 'uniform float uReveal;\nvarying float vDist;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+      sh.uniforms.uReveal = this.reveal; sh.uniforms.uOrigin = this.revealOrigin; sh.uniforms.uFar = this.chairFar;
+      sh.vertexShader = 'uniform vec2 uOrigin;\nvarying float vDist; varying float vCD;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n  vDist = distance(vec2(instanceMatrix[3][0], instanceMatrix[3][2]), uOrigin);').replace('#include <project_vertex>', '#include <project_vertex>\n  vCD = -mvPosition.z;');
+      // In the seat view, chairs further than ~60 m are smaller than a pixel and only add shimmering
+      // dots; drop them there (the treads under them carry the same colours) with a dithered fade.
+      sh.fragmentShader = 'uniform float uReveal; uniform float uFar;\nvarying float vDist; varying float vCD;\n' + sh.fragmentShader.replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\n  { float dth = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453); if (vCD > uFar - 20.0 * dth) discard; }').replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
   float litK = 1.0 - smoothstep(uReveal - 14.0, uReveal, vDist);
   diffuseColor.rgb *= mix(0.015, 1.0, litK);
   float rim = 1.0 - smoothstep(0.0, 7.0, abs(vDist - uReveal + 5.0));
@@ -1103,6 +1183,7 @@ export class SeatView {
   _paintSeats() {
     const mesh = this.seatField; if (!mesh) return;
     this._paintedMode = this.mode;
+    this.chairFar.value = this.mode === 'overview' ? 1e6 : 70;
     if (this.mode !== 'overview') {
       const col = new THREE.Color();
       this._seatList.forEach(([seat, sec, r], i) => {
@@ -1247,10 +1328,13 @@ export class SeatView {
     const ovm = this.mode === 'overview';
     if (this.hemi) this.hemi.intensity = 0.7 + ((ovm ? 1.5 : 1.3) - 0.7) * k;
     if (this.house) this.house.intensity = 0.35 * k;
-    if (this.flood) this.flood.intensity = (ovm ? 0.5 : 1.1) * k;
-    if (this.crowdMat) this.crowdMat.uniforms.uLight.value = 0.6 + 0.6 * k;
+    if (this.flood) { this.flood.intensity = 0.3 + ((ovm ? 0.7 : 1.3) - 0.3) * k; this.flood.color.set(k > 0.5 ? '#fff3df' : '#b9c6ff'); }
+    if (this.crowdMat) this.crowdMat.uniforms.uLight.value = 0.4 + 0.7 * k;
     if (this.ovLight) this.ovLight.intensity = (ovm ? 1.3 : 0.4) * k;
     this.renderer.toneMappingExposure = 0.9;
+    // the sky / stadium reflections fade with the house lights: at show time the bowl is dark
+    for (const m of this._envMats || []) m.envMapIntensity = 0.1 + 0.5 * k;
+    this.standFill.value = 1 - k;
     // no haze over the long overview shot, the night haze returns once you are in the seat
     const f = this.scene.fog; this._fog0 ||= { near: f.near, far: f.far };
     f.near = this._fog0.near + (2600 - this._fog0.near) * k; f.far = this._fog0.far + (5200 - this._fog0.far) * k;
