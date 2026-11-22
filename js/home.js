@@ -1,14 +1,15 @@
-// The scrolling home page (v4). Smooth scroll is Locomotive Scroll v5 (which runs on Lenis); every
-// section is a GSAP ScrollTrigger scene. Techniques are recreated from the reference sites with
-// Seatify's own content:
-//   stage   – live 3D concert in a frame that grows to full bleed, then flies into a seat (Danilo De Marco)
-//   tapes   – two crossing colour bands whose speed and skew follow scroll velocity (Airborne)
-//   swarm   – the title splits apart while show cards tumble up in 3D (Bleibtgleich)
-//   shows   – a sideways gallery you can drag with inertia (Niccolò Miranda)
-//   cube    – a tiny cube of seat views grows and turns over an outline serif marquee (Ning H.)
-//   lines   – manifesto lines light up one by one on a colour panel (Airborne)
-//   compare – a coloured spotlight follows the pointer (Thibaut)
-//   footer  – Vanta fog and a wordmark that fills from the bottom (Danilo De Marco)
+// The scrolling home page (v5, "Show night"). Smooth scroll is Locomotive Scroll v5 (which runs on
+// Lenis); every section is a GSAP ScrollTrigger scene:
+//   stage   – the word SEATIFY is a window onto a live 3D stadium, with a follow spot on the cursor.
+//             Scrolling zooms through the letter I into the stadium, then flies down into a seat.
+//   tapes   – two crossing stadium LED ribbon boards whose speed and skew follow scroll velocity
+//   swarm   – the line-up poster title splits apart while show posters tumble up in 3D
+//   shows   – a sideways row of tickets you can drag with inertia
+//   cube    – a cube of seat views grows and turns under a stage beam
+//   lines   – manifesto lines light up one by one on flame
+//   compare – an LED scoreboard with a spotlight that follows the pointer
+//   venues  – a split-flap departure board that flips on hover
+//   footer  – flame haze and a wordmark that fills from the bottom
 import * as THREE from 'three';
 import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { priceOf, fmtINR, viewStats, zoneSpot } from './model.js';
@@ -78,7 +79,6 @@ $('#hero-demo').onclick = () => openDemo();
 $('#hero-sticker').onclick = () => openDemo();
 
 // ---------- STAGE: live 3D in a frame that grows, then flies into a seat ----------
-const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
 const fly = { view: null, visible: true, built: false };
 function buildFly() {
   const v = venueById('nms');
@@ -102,7 +102,7 @@ function buildFly() {
   view.buildCrowd({ x: seat.x, y: seat.y, z: seat.z, seat }, { cap: finePointer ? 26000 : 11000 });
   // desktop: the bowl sits to the right of the headline; phones: below it
   const wide = innerWidth / innerHeight > 0.9, b = model.bounds;
-  view.prepareScrubDive({ x: seat.x, y: seat.y, z: seat.z }, seat, wide ? { shiftX: -(b.x1 - b.x0) * 0.3, zoom: 1.02 } : { zoom: 1.05 });
+  view.prepareScrubDive({ x: seat.x, y: seat.y, z: seat.z }, seat, wide ? { zoom: 0.6 } : { zoom: 0.85 });
   // the stadium starts dark: only your seat glows, until the intro wave lights every chair
   view.revealOrigin.value.set(seat.x, seat.z);
   view.reveal.value = motion ? 0 : 1e6;
@@ -115,8 +115,109 @@ function buildFly() {
   fly.stats = viewStats(model, { x: seat.x, y: seat.y, z: seat.z });
 }
 
+
+// ---------- MASK: SEATIFY as a window onto the stadium, plus a follow spot ----------
+// A 2D canvas laid over the 3D canvas: a near-black veil dims the stadium, and the letters and the
+// spotlight are cut out of it so the stadium shows through at full brightness. Scroll zooms into the stem of the I.
+const mask = { cv: null, ctx: null, word: 'SEATIFY', zq: 0, rise: motion ? 0 : 1, spot: { x: 0, y: 0, tx: 0, ty: 0, a: 0 }, L: null, done: false, raf: 0, user: false };
+function layoutMask() {
+  const cv = mask.cv; if (!cv) return;
+  const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const ctx = mask.ctx, F = 200;
+  ctx.font = `900 ${F}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+  const wide = W / H > 0.9, g = Math.max(16, W * 0.012);
+  // one line on wide screens; SEAT / IFY stacked like a poster on tall ones
+  const rows = wide ? ['SEATIFY'] : ['SEAT', 'IFY'];
+  const top = wide ? Math.max(84, H * 0.11) : H * 0.12, bottom = wide ? H - Math.max(190, H * 0.23) : H - Math.max(200, H * 0.26);
+  const gap = wide ? 0 : H * 0.015, rowH = ((bottom - top) - gap * (rows.length - 1)) / rows.length;
+  const track = F * 0.035, letters = [];
+  let ox = W / 2, oy = H / 2, k = 0;
+  rows.forEach((word, r) => {
+    const m = ctx.measureText(word);
+    const inkL = m.actualBoundingBoxLeft, inkW = inkL + m.actualBoundingBoxRight + track * (word.length - 1);
+    const inkH = m.actualBoundingBoxAscent + Math.max(0, m.actualBoundingBoxDescent);
+    const sx = (W - 2 * g) / inkW;
+    const sy = Math.max(sx * 0.9, Math.min(rowH / inkH, sx * 2.4));
+    const h = inkH * sy, y0 = top + r * (rowH + gap) + (rowH - h) / 2;
+    const base = y0 + m.actualBoundingBoxAscent * sy, x0 = g + inkL * sx;
+    for (let i = 0; i < word.length; i++) {
+      const x = x0 + (ctx.measureText(word.slice(0, i)).width + i * track) * sx;
+      letters.push({ ch: word[i], x, base, sx, sy, y0, h, k: k++ });
+      if (word[i] === 'I') { const mI = ctx.measureText('I'); ox = x + ((mI.actualBoundingBoxRight - mI.actualBoundingBoxLeft) / 2) * sx; oy = y0 + h / 2; }
+    }
+  });
+  mask.L = { W, H, dpr, F, letters, ox, oy, r: Math.max(W, H) * (wide ? 0.2 : 0.3) };
+  if (!mask.spot.x) { mask.spot.x = mask.spot.tx = W * 0.62; mask.spot.y = mask.spot.ty = H * 0.42; }
+  drawMask();
+}
+function drawMask() {
+  const L = mask.L, ctx = mask.ctx; if (!L || !ctx) return;
+  const z = mask.zq;
+  const finished = z >= 1;
+  if (finished !== mask.done) { mask.done = finished; mask.cv.style.visibility = finished ? 'hidden' : 'visible'; }
+  if (finished) return;
+  const { W, H, dpr } = L;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  // the house: dim stadium, brightening as we go through the letter
+  const open = clamp01((z - 0.55) / 0.45), dim = 0.08 + 0.92 * open * open;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = `rgba(5,5,5,${(1 - dim).toFixed(3)})`; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'destination-out';
+  // follow spot
+  const sp = mask.spot, sa = sp.a * (1 - clamp01(z * 4));
+  if (sa > 0.01) {
+    const gr = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, L.r);
+    gr.addColorStop(0, `rgba(255,255,255,${0.95 * sa})`); gr.addColorStop(0.55, `rgba(255,255,255,${0.55 * sa})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  }
+  // the word, zoomed about the stem of the I; letters rise one by one out of their own row
+  const zoom = Math.pow(110, z * z), stroke = 1 - clamp01(z * 3);
+  ctx.save();
+  ctx.translate(L.ox, L.oy); ctx.scale(zoom, zoom); ctx.translate(-L.ox, -L.oy);
+  ctx.fillStyle = '#fff'; ctx.lineJoin = 'round';
+  ctx.font = `900 ${L.F}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+  for (const lt of L.letters) {
+    const kk = clamp01(mask.rise * 1.7 - lt.k * 0.1), e = 1 - Math.pow(1 - kk, 4);
+    if (e <= 0) continue;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(lt.x - 40, lt.y0 - 2, W, lt.h + 4); ctx.clip();
+    ctx.translate(lt.x, lt.base + (1 - e) * lt.h * 1.04);
+    ctx.scale(lt.sx, lt.sy);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillText(lt.ch, 0, 0);
+    // a thin flame tube round each letter, so the word reads even over the dark pitch
+    if (stroke > 0.01) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = `rgba(255,75,31,${(0.9 * stroke).toFixed(3)})`; ctx.lineWidth = 1.6 / lt.sx;
+      ctx.strokeText(lt.ch, 0, 0);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+function setupMask(pin) {
+  mask.cv = $('#mask-canvas'); mask.ctx = mask.cv.getContext('2d');
+  const go = () => layoutMask();
+  if (document.fonts?.load) document.fonts.load('900 200px "Big Shoulders Display"').then(go, go); else go();
+  addEventListener('resize', () => layoutMask());
+  pin.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse') return; mask.user = true; mask.spot.tx = e.clientX; mask.spot.ty = e.clientY; });
+  // the spot drifts on its own until a mouse takes it; it eases toward its target every frame
+  const t0 = performance.now();
+  const loop = (now) => {
+    mask.raf = requestAnimationFrame(loop);
+    if (!mask.L || mask.done || !fly.visible || document.documentElement.classList.contains('layer-open')) return;
+    const L = mask.L, sp = mask.spot, t = (now - t0) / 1000;
+    if (!mask.user) { sp.tx = L.W * (0.55 + 0.3 * Math.sin(t * 0.45)); sp.ty = L.H * (0.45 + 0.16 * Math.sin(t * 0.83 + 1)); }
+    sp.x += (sp.tx - sp.x) * 0.09; sp.y += (sp.ty - sp.y) * 0.09;
+    drawMask();
+  };
+  mask.raf = requestAnimationFrame(loop);
+}
+
 function setupStage() {
-  const pin = $('.stage-pin'), frame = $('#stage-frame');
+  const pin = $('.stage-pin');
   const steps = $$('.step'); const bar = $('#fly-bar');
   const hudAlt = $('#hud-alt'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
   let last = -2;
@@ -124,16 +225,17 @@ function setupStage() {
     if (i === last) return; last = i;
     steps.forEach((el, k) => el.classList.toggle('on', k === i));
     if (i >= 0) {
-      hudCount.textContent = `0${i + 1} — 03`;
+      hudCount.textContent = `0${i + 1} / 03`;
       if (motion) gsap.fromTo(steps[i].children, { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.8, stagger: 0.07, ease: 'expo.out', overwrite: true });
     }
   };
   const update = (p) => {
-    const q = clamp01((p - 0.16) / 0.8);
+    mask.zq = clamp01(p / 0.2); drawMask();
+    const q = clamp01((p - 0.19) / 0.78);
     fly.q = q;
     fly.view?.setDiveP(Math.min(1, q * 1.08));
     if (q > 0.01 && fly.view) { fly.view.setHover(null); $('#hero-tip').hidden = true; }
-    const sv = clamp01((p - 0.18) / 0.08);
+    const sv = clamp01((p - 0.2) / 0.06);
     pin.style.setProperty('--steps', sv.toFixed(3));
     setStep(sv < 0.5 ? -1 : q < 0.36 ? 0 : q < 0.72 ? 1 : 2);
     bar.style.transform = `scaleX(${q})`;
@@ -144,7 +246,7 @@ function setupStage() {
   let heroItem = null;
   pin.addEventListener('pointermove', (e) => {
     const v = fly.view;
-    if (!v || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-title')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
+    if (!v || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-row')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
     const it = v.pickAt(e.clientX, e.clientY);
     if (it !== heroItem) { heroItem = it; v.setHover(it); }
     if (!it) { tip.hidden = true; return; }
@@ -159,21 +261,16 @@ function setupStage() {
     const it = heroItem; heroItem = null; tip.hidden = true; fly.view?.setHover(null);
     openFirst(); window.__seatify?.pick3d(it);
   });
+  setupMask(pin);
   if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); return; }
-  const cs = getComputedStyle(frame);
-  const start = { '--ft': cs.getPropertyValue('--ft').trim(), '--fx': cs.getPropertyValue('--fx').trim(), '--fb': cs.getPropertyValue('--fb').trim(), '--fr': cs.getPropertyValue('--fr').trim() };
-  const lines = $$('.ht-line');
   const tl = gsap.timeline({
     defaults: { ease: 'none' },
-    scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.2, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
+    scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.4, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
   });
-  tl.fromTo(frame, start, { '--ft': '0%', '--fx': '0%', '--fb': '0%', '--fr': '0px', duration: 0.2 }, 0)
-    .to(lines[0], { xPercent: -40, opacity: 0, duration: 0.16 }, 0.01)
-    .to(lines[1], { scale: 1.5, opacity: 0, transformOrigin: '30% 50%', duration: 0.16 }, 0.01)
-    .to(lines[2], { xPercent: 40, opacity: 0, duration: 0.16 }, 0.01)
-    .to('#hero-ov .kicker', { y: -40, opacity: 0, duration: 0.1 }, 0)
-    .to('.hero-row', { y: 80, opacity: 0, duration: 0.12 }, 0)
-    .to({}, { duration: 0.8 });
+  tl.to('.hero-top', { y: -40, opacity: 0, duration: 0.06 }, 0)
+    .to('.hero-row', { y: 60, opacity: 0, duration: 0.07 }, 0)
+    .to('.scroll-cue', { opacity: 0, duration: 0.04 }, 0)
+    .to({}, { duration: 0.93 });
   update(0);
   ScrollTrigger.create({
     trigger: '#how', start: 'top bottom', end: 'bottom top',
@@ -214,7 +311,7 @@ function stickerSpin(boost) { stickerA = (stickerA + 0.35 + boost * 0.6) % 360; 
 function setupSwarm() {
   const sw = $('#swarm');
   const lefts = [4, 68, 30, 82, 12, 52, 74, 22, 60, 38];
-  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%"><img src="${img(s.venue)}" alt="" loading="lazy" width="1600" height="1000"><span>${esc(s.artist)}</span></div>`).join('');
+  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%"><img src="${img(s.venue)}" alt="" loading="lazy" width="1600" height="1000"><span>${esc(s.title)}</span></div>`).join('');
   if (!motion) return;
   const cards = $$('.sw-card', sw);
   const tl = gsap.timeline({ defaults: { ease: 'none' }, scrollTrigger: { trigger: '.swarm-sec', start: 'top top', end: () => '+=' + innerHeight * 2.2, pin: '.swarm-pin', scrub: 0.8, invalidateOnRefresh: true } });
@@ -237,15 +334,26 @@ function setupShows() {
     const from = Math.min(...Object.keys(CATS).map((c) => priceOf(v, c)));
     const tag = i === 0 ? 'Fast selling' : i % 4 === 1 ? 'Few left' : i % 3 === 0 ? 'New' : '';
     return `<button class="show-card tilt" type="button" data-cursor="Pick seats" data-i="${i}">
-      <span class="sc-img"><img src="${img(s.venue)}" alt="Seatify render of ${esc(v.name)} from the stands" loading="lazy" width="1600" height="1000" draggable="false"></span>
-      ${tag ? `<span class="sc-tag mono">${tag}</span>` : ''}
-      <span class="sc-n mono">${String(i + 1).padStart(2, '0')}</span>
-      <span class="sc-meta mono">${esc(s.date)} · ${esc(cityOf(v))}</span>
-      <span class="sc-title">${esc(s.title)}</span>
-      <span class="sc-artist">${esc(s.artist)} <em>at ${esc(v.name)}</em></span>
-      <span class="sc-foot mono"><span>${esc(LAYOUTS[s.layout].label)}</span><span>from ${fmtINR(from)}</span></span>
+      <span class="sc-top">
+        <span class="sc-img"><img src="${img(s.venue)}" alt="Seatify render of ${esc(v.name)} from the stands" loading="lazy" width="1600" height="1000" draggable="false"></span>
+        ${tag ? `<span class="sc-tag mono">${tag}</span>` : ''}
+        <span class="sc-n">${String(i + 1).padStart(2, '0')}</span>
+        <span class="sc-meta mono">${esc(s.date)} · ${esc(s.time)} · ${esc(cityOf(v))}</span>
+        <span class="sc-title">${esc(s.title)}</span>
+        <span class="sc-artist">${esc(s.artist)} <em>at ${esc(v.name)}</em></span>
+      </span>
+      <span class="sc-stub">
+        <span class="sc-admit">ADMIT ONE</span>
+        <span class="sc-from">From</span>
+        <span class="sc-price">${fmtINR(from)}</span>
+        <span class="sc-code" aria-hidden="true"></span>
+        <span class="sc-lay">${esc(LAYOUTS[s.layout].label)}</span>
+      </span>
     </button>`;
   }).join('');
+  // the perforation notches line up with the dashed tear line
+  const perf = () => { for (const el of $$('.show-card', track)) el.style.setProperty('--perf', el.querySelector('.sc-top').offsetHeight + 'px'); };
+  perf(); document.fonts?.ready.then(perf); addEventListener('resize', perf);
   let moved = false;
   for (const el of $$('.show-card', track)) el.addEventListener('click', (e) => { if (moved) { e.preventDefault(); return; } const s = SHOWS[+el.dataset.i]; openMap({ show: s, venue: venueById(s.venue), layout: s.layout }); });
   if (!motion) return;
@@ -360,13 +468,37 @@ function renderVenues() {
     <li><button type="button" class="v-row" data-id="${v.id}" data-cursor="Open map">
       <span class="v-n mono">${String(VENUES.indexOf(v) + 1).padStart(2, '0')}</span>
       <span class="v-thumb"><img src="${img(v.id)}" alt="" loading="lazy" width="1600" height="1000"></span>
-      <span class="v-name">${esc(v.name)}</span>
+      <span class="v-name" aria-label="${esc(v.name)}">${flaps(v.name)}</span>
       <span class="v-city mono">${esc(v.city)}</span>
       <span class="v-kind mono">${v.kind === 'ground' ? 'Open ground' : v.kind === 'arena' ? 'Indoor arena' : 'Stadium'}</span>
       <span class="v-cap mono">${esc(v.capacity.split(' · ')[0])}</span>
+      <span class="v-stat">${SHOWS.some((s) => s.venue === v.id) ? 'ON SALE' : 'SOON'}</span>
       <span class="v-arrow" aria-hidden="true">↗</span>
     </button></li>`).join('');
-  for (const b of $$('.v-row')) b.onclick = () => openMap({ show: null, venue: venueById(b.dataset.id), layout: 'end' });
+  for (const b of $$('.v-row')) {
+    b.onclick = () => openMap({ show: null, venue: venueById(b.dataset.id), layout: 'end' });
+    if (finePointer && !reduce) b.addEventListener('pointerenter', () => flip(b));
+  }
+}
+function flaps(name) {
+  return name.toUpperCase().split(/\s+/).map((w) => `<span class="fw" aria-hidden="true">${[...w].map((c) => `<span class="fl">${esc(c)}</span>`).join('')}</span>`).join('');
+}
+// split-flap: every tile shuffles through letters before it settles, left to right
+const FLAP = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+function flip(row) {
+  if (row._flipping) return; row._flipping = true;
+  const tiles = $$('.fl', row.querySelector('.v-name'));
+  let left = tiles.length;
+  tiles.forEach((t, i) => {
+    const final = t.dataset.c || (t.dataset.c = t.textContent);
+    let n = 3 + i;
+    const step = () => {
+      if (n-- <= 0) { t.textContent = final; if (--left === 0) row._flipping = false; return; }
+      t.textContent = FLAP[(Math.random() * FLAP.length) | 0];
+      setTimeout(step, 38);
+    };
+    setTimeout(step, i * 14);
+  });
 }
 function setupVenuePreview() {
   if (!finePointer || !motion) return;
@@ -389,7 +521,7 @@ function startVanta() {
   if (vanta || reduce || !window.VANTA?.FOG) return;
   try {
     vanta = VANTA.FOG({ el: '#foot-fog', THREE, mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200, minWidth: 200,
-      highlightColor: 0xff4fa0, midtoneColor: 0x6a4bff, lowlightColor: 0x1c0f4a, baseColor: 0x0d0b14, blurFactor: 0.6, speed: 1.3, zoom: 0.9 });
+      highlightColor: 0xff8a3d, midtoneColor: 0xff4b1f, lowlightColor: 0x2a0a02, baseColor: 0x060606, blurFactor: 0.62, speed: 1.1, zoom: 0.8 });
   } catch (err) { console.warn('Vanta fog could not start', err); }
 }
 function setupFooter() {
@@ -434,13 +566,13 @@ function setupPointerFx() {
 // ---------- big headings: letters rise as they enter ----------
 function setupReveals() {
   if (!motion) { document.documentElement.classList.add("scrolled"); return; }
-  for (const el of $$('.display.big .split, .cube-copy .split')) {
+  for (const el of $$('.display .split')) {
     const chars = splitChars(el);
     gsap.from(chars, { yPercent: 115, rotate: 8, duration: 1, ease: 'expo.out', stagger: 0.02, scrollTrigger: { trigger: el, start: 'top 90%' } });
   }
   for (const el of $$('.v-row')) gsap.from(el, { y: 40, opacity: 0, duration: 0.8, ease: 'power3.out', scrollTrigger: { trigger: el, start: 'top 94%' } });
-  // colour panels round in as they arrive (Airborne)
-  for (const p of $$('.panel:not(.swarm-sec):not(.shows)')) gsap.fromTo(p, { scale: 0.94 }, { scale: 1, ease: 'none', scrollTrigger: { trigger: p, start: 'top bottom', end: 'top 40%', scrub: true } });
+  // the flame manifesto wipes up over the dark page like a lighting cue
+  gsap.fromTo('.manifesto', { clipPath: 'inset(18% 0% 0% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', ease: 'none', scrollTrigger: { trigger: '.manifesto', start: 'top bottom', end: 'top 30%', scrub: true } });
   ScrollTrigger.create({ start: 240, end: 'max', onToggle: (self) => document.documentElement.classList.toggle('scrolled', self.isActive) });
   ScrollTrigger.create({ start: 120, end: 'max', onUpdate: (self) => $('#nav').classList.toggle('tucked', self.direction === 1 && self.scroll() > 200) });
 }
@@ -448,15 +580,15 @@ function setupReveals() {
 // ---------- intro: preloader lifts, violet curtain lifts, frame opens, title rises ----------
 function intro() {
   document.documentElement.classList.add('ready');
-  if (!motion) { $('#curtain')?.remove(); return; }
+  if (!motion) { $('#curtain')?.remove(); mask.spot.a = 1; drawMask(); return; }
   const tl = gsap.timeline({ defaults: { ease: 'expo.out' } });
-  tl.to('#curtain', { clipPath: 'inset(0% 0% 100% 0%)', duration: 1.1, ease: 'expo.inOut', onComplete: () => $('#curtain')?.remove() }, 0.15)
-    .fromTo('#stage-frame', { '--it': '30%', '--ix': '26%', '--ib': '18%', '--ir': '160px' }, { '--it': '0%', '--ix': '0%', '--ib': '0%', '--ir': '0px', duration: 1.8, ease: 'expo.inOut' }, 0.35)
-    .from(heroChars, { yPercent: 120, duration: 1.3, stagger: 0.03 }, 0.75)
+  tl.to('#curtain', { clipPath: 'inset(0% 0% 100% 0%)', duration: 1.0, ease: 'expo.inOut', onComplete: () => $('#curtain')?.remove() }, 0.1)
+    .to(mask, { rise: 1, duration: 1.9, ease: 'none', onUpdate: drawMask }, 0.45)
+    .to(mask.spot, { a: 1, duration: 1.6, ease: 'power2.inOut' }, 1.6)
     .from('.nav > *', { y: -20, opacity: 0, duration: 0.8, stagger: 0.06 }, 0.9)
-    .from(['.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.2)
-    .from('#hero-ov .kicker', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
-    .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.4);
+    .from(['.hero-title', '.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.3)
+    .from('.hero-top > *', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
+    .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.6);
   const v = fly.view;
   if (v) {
     // one seat glows in the dark, then a wave of light runs out from it across every chair
@@ -469,9 +601,8 @@ function intro() {
 
 function preload(work) {
   const fill = $('#pl-fill'), count = $('#pl-count'), pre = $('#preloader');
-  const C = 2 * Math.PI * 54; fill.style.strokeDasharray = C;
   const shown = { v: 0 };
-  const draw = () => { fill.style.strokeDashoffset = C * (1 - shown.v / 100); count.textContent = String(Math.round(shown.v)).padStart(3, '0'); };
+  const draw = () => { fill.style.transform = `scaleX(${shown.v / 100})`; count.textContent = String(Math.round(shown.v)).padStart(3, '0'); };
   draw();
   const done = () => {
     if (motion) gsap.to(pre, { clipPath: 'inset(0 0 100% 0)', duration: 0.9, ease: 'expo.inOut', onComplete: () => pre.remove() });
