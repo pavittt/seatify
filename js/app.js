@@ -3,6 +3,7 @@ import { buildModel, priceOf, fmtINR, viewStats, warningsFor, zoneSpot } from '.
 import { SeatMap, miniMap } from './map.js';
 import { SeatView } from './scene3d.js';
 import { REAL_PHOTOS } from './data/photos.js';
+import { mapsLinks } from './data/places.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -325,6 +326,7 @@ function renderViewSheet() {
   $('#view-crowd').textContent = `${view.crowdCount.toLocaleString('en-IN')} fans drawn around you`;
   miniMap($('#view-minimap'), m, p.point);
   renderRealPhotos(m, p);
+  renderPlace(m);
 }
 
 // Real photos from the stands, the closest tier first, so the 3D view can be checked against reality.
@@ -341,6 +343,52 @@ function renderRealPhotos(m, p) {
     <div class="real-strip">${photos.map((x, i) => `<button type="button" class="real-ph" data-i="${i}"><img src="${x.thumb}" alt="${esc(x.label)}" loading="lazy"><span>${esc(x.label)}${x.tier === want ? ' · your tier' : ''}</span></button>`).join('')}</div>`;
   for (const b of box.querySelectorAll('.real-ph')) b.onclick = () => openRealPhoto(photos, +b.dataset.i);
   if (fab) { fab.hidden = false; fab.onclick = () => openRealPhoto(photos, 0); }
+}
+
+// The real venue on Google Maps: satellite, Google Earth 3D and Street View, all keyless.
+function renderPlace(m) {
+  const box = $('#view-place'); const L = mapsLinks(m.venue.id);
+  if (!box) return;
+  if (!L) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="real-head"><b>The real ${esc(m.venue.name)}</b><span>Google Maps</span></div>
+    <button type="button" class="place-card" id="place-open" aria-label="Open the satellite view of ${esc(m.venue.name)}">
+      <span class="place-ic" aria-hidden="true">◉</span><span><b>See it from above</b><em>Satellite, 3D and Street View of the real venue</em></span><i aria-hidden="true">↗</i>
+    </button>`;
+  $('#place-open').onclick = () => openPlace(m.venue);
+}
+
+function openPlace(venue) {
+  const L = mapsLinks(venue.id); if (!L) return;
+  let d = $('#place-dlg');
+  if (!d) { d = h('div', 'place-dlg'); d.id = 'place-dlg'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', 'place-title'); document.body.appendChild(d); }
+  let sat = true;
+  d.hidden = false;
+  d.innerHTML = `<div class="place-box">
+      <header class="place-top">
+        <div><p class="kicker mono">Real venue · Google Maps</p><h3 id="place-title">${esc(venue.name)}</h3><div class="meta">${esc(venue.city)}</div></div>
+        <button class="icon-btn" type="button" id="place-x" aria-label="Close map">✕</button>
+      </header>
+      <div class="segs place-segs" role="group" aria-label="Map type"><button type="button" class="seg on" data-sat="1" aria-pressed="true">Satellite</button><button type="button" class="seg" data-sat="0" aria-pressed="false">Map</button></div>
+      <div class="place-frame"><iframe id="place-iframe" title="Google Maps view of ${esc(venue.name)}" src="${L.embed(true)}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe></div>
+      <div class="place-links">
+        <a class="ghost" href="${L.earth}" target="_blank" rel="noopener">3D in Google Earth ↗</a>
+        ${L.street ? `<a class="ghost" href="${L.street}" target="_blank" rel="noopener">Street View ↗</a>` : ''}
+        <a class="ghost" href="${L.maps}" target="_blank" rel="noopener">Open in Google Maps ↗</a>
+        <a class="ghost" href="${L.directions}" target="_blank" rel="noopener">Directions ↗</a>
+      </div>
+      <p class="fine">${L.exact ? 'Pin is on the venue.' : 'Pin shows the grounds. The concert enclosure moves from show to show.'} Seatify's section plan is approximate, so use the satellite view to see the real bowl, roof and what is around it.</p>
+    </div>`;
+  const close = () => { d.hidden = true; d.innerHTML = ''; window.removeEventListener('keydown', key, true); };
+  const key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); close(); } };
+  window.addEventListener('keydown', key, true);
+  $('#place-x').onclick = close; d.onclick = (e) => { if (e.target === d) close(); };
+  for (const b of d.querySelectorAll('.place-segs .seg')) b.onclick = () => {
+    sat = b.dataset.sat === '1';
+    for (const o of d.querySelectorAll('.place-segs .seg')) { const on = o === b; o.classList.toggle('on', on); o.setAttribute('aria-pressed', String(on)); }
+    $('#place-iframe').src = L.embed(sat);
+  };
+  $('#place-x').focus();
 }
 
 function openRealPhoto(list, i) {
@@ -420,6 +468,8 @@ $('#select-view').onclick = openView;
 $('#view-back').onclick = () => (scr.classList.contains('is-map') ? show('screen-home') : backToStadium());
 $('#view-change').onclick = backToStadium;
 $('#m3-plan').onclick = openPlan;
+$('#m3-place').onclick = () => state.model && openPlace(state.model.venue);
+$('#map-place').onclick = () => state.model && openPlace(state.model.venue);
 $('#seat-prev').onclick = () => stepSeat(-1);
 $('#seat-next').onclick = () => stepSeat(1);
 view.onHover = (it, x, y) => showTip(it, x, y);

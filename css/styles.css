@@ -557,3 +557,31 @@ html.layer-open .sticker, html:not(.ready) .sticker { opacity: 0; pointer-events
 .real-fab { position: absolute; top: 72px; right: 16px; z-index: 6; border: 1px solid rgba(255,255,255,0.35); background: rgba(10,10,16,0.7); color: #f4f3ee; border-radius: 999px; padding: 9px 14px; font: inherit; font-size: 13px; cursor: pointer; backdrop-filter: blur(6px); }
 .real-fab[hidden] { display: none; }
 #screen-view:not(.is-seat) .real-fab { display: none; }
+
+/* ---------- real venue on Google Maps ---------- */
+.map-place { padding: 9px 14px; flex: none; }
+.place-card { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line-2); background: none; color: inherit; font: inherit; cursor: pointer; transition: background .3s, color .3s; }
+.place-card:hover { background: var(--bone); color: var(--ink); }
+.place-card > span:nth-child(2) { flex: 1; display: grid; gap: 2px; }
+.place-card b { font-size: 14px; }
+.place-card em { font-style: normal; font-size: 12px; opacity: .7; }
+.place-ic { color: var(--lime); font-size: 20px; }
+.place-card:hover .place-ic { color: var(--ink); }
+.place-dlg { position: fixed; inset: 0; z-index: 95; background: rgba(5, 5, 9, 0.88); display: grid; place-items: center; padding: 16px; }
+.place-dlg[hidden] { display: none; }
+.place-box { width: min(1100px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; gap: 12px; background: var(--ink); color: var(--bone); border: 1px solid var(--line); border-radius: 22px; padding: 18px; overflow: auto; }
+.place-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.place-top h3 { font: 500 clamp(22px, 3vw, 34px)/1.05 var(--display); letter-spacing: -0.03em; margin: 4px 0 2px; }
+.place-top .meta { font-size: 13px; opacity: .7; }
+.place-segs { margin: 0; width: min(260px, 100%); }
+.place-frame { position: relative; flex: none; min-height: 260px; height: min(62dvh, 640px); border-radius: 14px; overflow: hidden; background: #111; }
+.place-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.place-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.place-links .ghost { text-decoration: none; color: inherit; padding: 10px 14px; }
+.place-dlg .fine { margin: 0; font-size: 12px; opacity: .7; }
+@media (max-width: 560px) {
+  .place-dlg { padding: 0; }
+  .place-box { border-radius: 0; max-height: 100dvh; height: 100dvh; padding: 14px 16px; }
+  .place-frame { flex: 1; height: auto; }
+  .map-place { display: none; }
+}
