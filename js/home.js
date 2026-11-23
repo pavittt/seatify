@@ -10,10 +10,10 @@
 //   compare – an LED scoreboard with a spotlight that follows the pointer
 //   venues  – a split-flap departure board that flips on hover
 //   footer  – flame haze and a wordmark that fills from the bottom
-import * as THREE from 'three';
 import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { priceOf, fmtINR, viewStats, zoneSpot } from './model.js';
 import { SeatView } from './scene3d.js';
+import { REAL_PHOTOS } from './data/photos.js';
 import { openMap, getModel, openDemo } from './app.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -29,6 +29,10 @@ const cityOf = (v) => v.city.split(' (')[0];
 const venueById = (id) => VENUES.find((v) => v.id === id);
 const img = (id) => `assets/venues/${id}.jpg`;
 const rnd = (a, b) => a + Math.random() * (b - a);
+// a real photo of the venue where we have one, otherwise our own render
+const realOf = (id) => (REAL_PHOTOS[id] || [])[0];
+const thumbOf = (id) => realOf(id)?.thumb || img(id);
+const bigOf = (id) => realOf(id)?.src || img(id);
 
 // ---------- smooth scroll ----------
 let loco = null, lenis = null, velocity = 0;
@@ -77,8 +81,12 @@ $('#hero-cta').onclick = openFirst;
 $('#foot-cta').onclick = openFirst;
 $('#hero-demo').onclick = () => openDemo();
 $('#hero-sticker').onclick = () => openDemo();
+$('#next-ticket').onclick = openFirst;
+const ntPerf = () => { const t = $('#next-ticket'); t.style.setProperty('--perf', t.querySelector('.nt-top').offsetHeight + 'px'); };
+ntPerf(); document.fonts?.ready.then(ntPerf); addEventListener('resize', ntPerf);
 
 // ---------- STAGE: live 3D in a frame that grows, then flies into a seat ----------
+const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
 const fly = { view: null, visible: true, built: false };
 function buildFly() {
   const v = venueById('nms');
@@ -116,91 +124,50 @@ function buildFly() {
 }
 
 
-// ---------- MASK: SEATIFY as a window onto the stadium, plus a follow spot ----------
-// A 2D canvas laid over the 3D canvas: a near-black veil dims the stadium, and the letters and the
-// spotlight are cut out of it so the stadium shows through at full brightness. Scroll zooms into the stem of the I.
-const mask = { cv: null, ctx: null, word: 'SEATIFY', zq: 0, rise: motion ? 0 : 1, spot: { x: 0, y: 0, tx: 0, ty: 0, a: 0 }, L: null, done: false, raf: 0, user: false };
+// ---------- MASK: a follow spot over a real concert photo ----------
+// A 2D canvas laid over the hero photo: a dark veil with a soft hole that follows the cursor (it drifts
+// on its own on touch screens). Scrolling pushes into the photo and fades it away into the 3D stadium.
+const mask = { cv: null, ctx: null, zq: 0, spot: { x: 0, y: 0, tx: 0, ty: 0, a: 0 }, L: null, done: false, raf: 0, user: false };
 function layoutMask() {
   const cv = mask.cv; if (!cv) return;
   const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  const ctx = mask.ctx, F = 200;
-  ctx.font = `900 ${F}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
-  const wide = W / H > 0.9, g = Math.max(16, W * 0.012);
-  // one line on wide screens; SEAT / IFY stacked like a poster on tall ones
-  const rows = wide ? ['SEATIFY'] : ['SEAT', 'IFY'];
-  const top = wide ? Math.max(84, H * 0.11) : H * 0.12, bottom = wide ? H - Math.max(190, H * 0.23) : H - Math.max(200, H * 0.26);
-  const gap = wide ? 0 : H * 0.015, rowH = ((bottom - top) - gap * (rows.length - 1)) / rows.length;
-  const track = F * 0.035, letters = [];
-  let ox = W / 2, oy = H / 2, k = 0;
-  rows.forEach((word, r) => {
-    const m = ctx.measureText(word);
-    const inkL = m.actualBoundingBoxLeft, inkW = inkL + m.actualBoundingBoxRight + track * (word.length - 1);
-    const inkH = m.actualBoundingBoxAscent + Math.max(0, m.actualBoundingBoxDescent);
-    const sx = (W - 2 * g) / inkW;
-    const sy = Math.max(sx * 0.9, Math.min(rowH / inkH, sx * 2.4));
-    const h = inkH * sy, y0 = top + r * (rowH + gap) + (rowH - h) / 2;
-    const base = y0 + m.actualBoundingBoxAscent * sy, x0 = g + inkL * sx;
-    for (let i = 0; i < word.length; i++) {
-      const x = x0 + (ctx.measureText(word.slice(0, i)).width + i * track) * sx;
-      letters.push({ ch: word[i], x, base, sx, sy, y0, h, k: k++ });
-      if (word[i] === 'I') { const mI = ctx.measureText('I'); ox = x + ((mI.actualBoundingBoxRight - mI.actualBoundingBoxLeft) / 2) * sx; oy = y0 + h / 2; }
-    }
-  });
-  mask.L = { W, H, dpr, F, letters, ox, oy, r: Math.max(W, H) * (wide ? 0.2 : 0.3) };
-  if (!mask.spot.x) { mask.spot.x = mask.spot.tx = W * 0.62; mask.spot.y = mask.spot.ty = H * 0.42; }
+  mask.L = { W, H, dpr, r: Math.max(W, H) * (W > H ? 0.26 : 0.42) };
+  if (!mask.spot.x) { mask.spot.x = mask.spot.tx = W * 0.5; mask.spot.y = mask.spot.ty = H * 0.3; }
   drawMask();
 }
+const photoEl = () => (mask.ph ||= $('#hero-photo'));
 function drawMask() {
   const L = mask.L, ctx = mask.ctx; if (!L || !ctx) return;
-  const z = mask.zq;
-  const finished = z >= 1;
-  if (finished !== mask.done) { mask.done = finished; mask.cv.style.visibility = finished ? 'hidden' : 'visible'; }
+  const z = mask.zq, finished = z >= 1;
+  const ph = photoEl();
+  if (ph) { ph.style.transform = `scale(${(1.04 + z * 0.5).toFixed(4)})`; ph.style.opacity = (1 - clamp01((z - 0.2) / 0.42)).toFixed(3); }
+  if (finished !== mask.done) { mask.done = finished; mask.cv.style.visibility = finished ? 'hidden' : 'visible'; if (ph) ph.style.visibility = finished ? 'hidden' : 'visible'; }
   if (finished) return;
   const { W, H, dpr } = L;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
-  // the house: dim stadium, brightening as we go through the letter
-  const open = clamp01((z - 0.55) / 0.45), dim = 0.08 + 0.92 * open * open;
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = `rgba(5,5,5,${(1 - dim).toFixed(3)})`; ctx.fillRect(0, 0, W, H);
-  ctx.globalCompositeOperation = 'destination-out';
-  // follow spot
-  const sp = mask.spot, sa = sp.a * (1 - clamp01(z * 4));
+  // the house goes to black between the photo and the 3D stadium, then the stadium fades up
+  const veil = z < 0.62 ? 0.74 + 0.26 * (z / 0.62) : 1 - (z - 0.62) / 0.38;
+  ctx.fillStyle = `rgba(5,5,5,${veil.toFixed(3)})`; ctx.fillRect(0, 0, W, H);
+  const sp = mask.spot, sa = sp.a * (1 - clamp01(z * 2.6));
   if (sa > 0.01) {
-    const gr = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, L.r);
-    gr.addColorStop(0, `rgba(255,255,255,${0.95 * sa})`); gr.addColorStop(0.55, `rgba(255,255,255,${0.55 * sa})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
-  }
-  // the word, zoomed about the stem of the I; letters rise one by one out of their own row
-  const zoom = Math.pow(110, z * z), stroke = 1 - clamp01(z * 3);
-  ctx.save();
-  ctx.translate(L.ox, L.oy); ctx.scale(zoom, zoom); ctx.translate(-L.ox, -L.oy);
-  ctx.fillStyle = '#fff'; ctx.lineJoin = 'round';
-  ctx.font = `900 ${L.F}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
-  for (const lt of L.letters) {
-    const kk = clamp01(mask.rise * 1.7 - lt.k * 0.1), e = 1 - Math.pow(1 - kk, 4);
-    if (e <= 0) continue;
-    ctx.save();
-    ctx.beginPath(); ctx.rect(lt.x - 40, lt.y0 - 2, W, lt.h + 4); ctx.clip();
-    ctx.translate(lt.x, lt.base + (1 - e) * lt.h * 1.04);
-    ctx.scale(lt.sx, lt.sy);
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillText(lt.ch, 0, 0);
-    // a thin flame tube round each letter, so the word reads even over the dark pitch
-    if (stroke > 0.01) {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = `rgba(255,75,31,${(0.9 * stroke).toFixed(3)})`; ctx.lineWidth = 1.6 / lt.sx;
-      ctx.strokeText(lt.ch, 0, 0);
-    }
-    ctx.restore();
+    const gr = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, L.r);
+    gr.addColorStop(0, `rgba(0,0,0,${sa})`); gr.addColorStop(0.45, `rgba(0,0,0,${0.75 * sa})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+    // a warm rim on the beam, like a gel on a follow spot
+    ctx.globalCompositeOperation = 'source-over';
+    const rim = ctx.createRadialGradient(sp.x, sp.y, L.r * 0.55, sp.x, sp.y, L.r);
+    rim.addColorStop(0, 'rgba(255,75,31,0)'); rim.addColorStop(0.7, `rgba(255,75,31,${0.12 * sa})`); rim.addColorStop(1, 'rgba(255,75,31,0)');
+    ctx.fillStyle = rim; ctx.fillRect(0, 0, W, H);
   }
-  ctx.restore();
 }
 function setupMask(pin) {
   mask.cv = $('#mask-canvas'); mask.ctx = mask.cv.getContext('2d');
   const go = () => layoutMask();
-  if (document.fonts?.load) document.fonts.load('900 200px "Big Shoulders Display"').then(go, go); else go();
+  go();
   addEventListener('resize', () => layoutMask());
   pin.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse') return; mask.user = true; mask.spot.tx = e.clientX; mask.spot.ty = e.clientY; });
   // the spot drifts on its own until a mouse takes it; it eases toward its target every frame
@@ -209,7 +176,7 @@ function setupMask(pin) {
     mask.raf = requestAnimationFrame(loop);
     if (!mask.L || mask.done || !fly.visible || document.documentElement.classList.contains('layer-open')) return;
     const L = mask.L, sp = mask.spot, t = (now - t0) / 1000;
-    if (!mask.user) { sp.tx = L.W * (0.55 + 0.3 * Math.sin(t * 0.45)); sp.ty = L.H * (0.45 + 0.16 * Math.sin(t * 0.83 + 1)); }
+    if (!mask.user) { sp.tx = L.W * (0.5 + 0.28 * Math.sin(t * 0.45)); sp.ty = L.H * (0.34 + 0.14 * Math.sin(t * 0.83 + 1)); }
     sp.x += (sp.tx - sp.x) * 0.09; sp.y += (sp.ty - sp.y) * 0.09;
     drawMask();
   };
@@ -246,7 +213,7 @@ function setupStage() {
   let heroItem = null;
   pin.addEventListener('pointermove', (e) => {
     const v = fly.view;
-    if (!v || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-row')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
+    if (!v || !mask.done || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-row')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
     const it = v.pickAt(e.clientX, e.clientY);
     if (it !== heroItem) { heroItem = it; v.setHover(it); }
     if (!it) { tip.hidden = true; return; }
@@ -268,6 +235,10 @@ function setupStage() {
     scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.4, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
   });
   tl.to('.hero-top', { y: -40, opacity: 0, duration: 0.06 }, 0)
+    .to('.hero-title .ht-line:nth-child(1)', { xPercent: -30, opacity: 0, duration: 0.12 }, 0.01)
+    .to('.hero-title .ht-line:nth-child(2)', { xPercent: 30, opacity: 0, duration: 0.12 }, 0.01)
+    .to('#next-ticket', { y: -innerHeight * 0.5, rotate: 14, opacity: 0, duration: 0.12 }, 0)
+    .to('.hero-credit', { opacity: 0, duration: 0.04 }, 0)
     .to('.hero-row', { y: 60, opacity: 0, duration: 0.07 }, 0)
     .to('.scroll-cue', { opacity: 0, duration: 0.04 }, 0)
     .to({}, { duration: 0.93 });
@@ -467,7 +438,7 @@ function renderVenues() {
   $('#v-index').innerHTML = list.map((v) => `
     <li><button type="button" class="v-row" data-id="${v.id}" data-cursor="Open map">
       <span class="v-n mono">${String(VENUES.indexOf(v) + 1).padStart(2, '0')}</span>
-      <span class="v-thumb"><img src="${img(v.id)}" alt="" loading="lazy" width="1600" height="1000"></span>
+      <span class="v-thumb"><img src="${esc(thumbOf(v.id))}" alt="" loading="lazy"></span>
       <span class="v-name" aria-label="${esc(v.name)}">${flaps(v.name)}</span>
       <span class="v-city mono">${esc(v.city)}</span>
       <span class="v-kind mono">${v.kind === 'ground' ? 'Open ground' : v.kind === 'arena' ? 'Indoor arena' : 'Stadium'}</span>
@@ -493,7 +464,8 @@ function flip(row) {
     const final = t.dataset.c || (t.dataset.c = t.textContent);
     let n = 3 + i;
     const step = () => {
-      if (n-- <= 0) { t.textContent = final; if (--left === 0) row._flipping = false; return; }
+      if (n-- <= 0) { t.textContent = final; t.classList.remove('flip'); if (--left === 0) row._flipping = false; return; }
+      t.classList.add('flip');
       t.textContent = FLAP[(Math.random() * FLAP.length) | 0];
       setTimeout(step, 38);
     };
@@ -507,7 +479,7 @@ function setupVenuePreview() {
   let lastX = 0;
   $('#v-index').addEventListener('pointermove', (e) => {
     const row = e.target.closest('.v-row'); if (!row) return;
-    const src = img(row.dataset.id); if (!pimg.src.endsWith(src)) pimg.src = src;
+    const src = bigOf(row.dataset.id); if (!pimg.src.endsWith(src)) pimg.src = src;
     xTo(e.clientX); yTo(e.clientY);
     gsap.to(pv, { rotate: Math.max(-8, Math.min(8, (e.clientX - lastX) * 0.4)), duration: 0.4 }); lastX = e.clientX;
     pv.classList.add('on');
@@ -515,20 +487,16 @@ function setupVenuePreview() {
   $('#v-index').addEventListener('pointerleave', () => pv.classList.remove('on'));
 }
 
-// ---------- FOOTER: fog starts when you get close, wordmark fills from the bottom ----------
-let vanta = null;
-function startVanta() {
-  if (vanta || reduce || !window.VANTA?.FOG) return;
-  try {
-    vanta = VANTA.FOG({ el: '#foot-fog', THREE, mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200, minWidth: 200,
-      highlightColor: 0xff8a3d, midtoneColor: 0xff4b1f, lowlightColor: 0x2a0a02, baseColor: 0x060606, blurFactor: 0.62, speed: 1.1, zoom: 0.8 });
-  } catch (err) { console.warn('Vanta fog could not start', err); }
-}
+// ---------- FOOTER: a ticket rises over the crowd; the stub tears off as you reach the end ----------
 function setupFooter() {
-  if (!motion) { startVanta(); return; }
-  ScrollTrigger.create({ trigger: '.foot', start: 'top 150%', onEnter: startVanta });
-  gsap.fromTo('#fm-fill', { clipPath: 'inset(100% 0% 0% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top 60%', end: 'bottom bottom', scrub: true } });
-  gsap.from('.foot-mark', { yPercent: 40, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'bottom bottom', scrub: true } });
+  const seat = $('#ft-seat');
+  const seats = ['SEC 113 · ROW K · SEAT 15', 'FAN PIT · FRONT', 'SEC 204 · ROW C · SEAT 8', 'SEC 319 · ROW AK · SEAT 40', 'GOLD · SEC 105 · ROW F'];
+  let si = 0;
+  $('#ft-stub').addEventListener('pointerenter', () => { si = (si + 1) % seats.length; seat.textContent = seats[si]; });
+  if (!motion) return;
+  gsap.fromTo('.foot-photo img', { scale: 1.25, yPercent: -6 }, { scale: 1.02, yPercent: 0, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'bottom bottom', scrub: true } });
+  gsap.fromTo('#foot-ticket', { y: 160, rotate: -3 }, { y: 0, rotate: 0, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'top 25%', scrub: true } });
+  gsap.fromTo('#ft-stub', { rotate: 0, x: 0, y: 0 }, { rotate: 5, x: 16, y: 20, ease: 'power1.in', scrollTrigger: { trigger: '.foot', start: 'center bottom', end: 'bottom bottom', scrub: true } });
 }
 
 // ---------- pointer: card tilt + glare, magnetic buttons, cursor ----------
@@ -583,8 +551,10 @@ function intro() {
   if (!motion) { $('#curtain')?.remove(); mask.spot.a = 1; drawMask(); return; }
   const tl = gsap.timeline({ defaults: { ease: 'expo.out' } });
   tl.to('#curtain', { clipPath: 'inset(0% 0% 100% 0%)', duration: 1.0, ease: 'expo.inOut', onComplete: () => $('#curtain')?.remove() }, 0.1)
-    .to(mask, { rise: 1, duration: 1.9, ease: 'none', onUpdate: drawMask }, 0.45)
-    .to(mask.spot, { a: 1, duration: 1.6, ease: 'power2.inOut' }, 1.6)
+    .fromTo('#hero-photo', { scale: 1.25, filter: 'brightness(0)' }, { scale: 1.04, filter: 'brightness(1)', duration: 2.4, ease: 'expo.out', clearProps: 'filter' }, 0.3)
+    .from(heroChars, { yPercent: 115, duration: 1.2, stagger: 0.025 }, 0.7)
+    .from('#next-ticket', { y: -160, rotate: -24, opacity: 0, duration: 1.4, ease: 'back.out(1.4)' }, 1.3)
+    .to(mask.spot, { a: 1, duration: 1.6, ease: 'power2.inOut' }, 1.1)
     .from('.nav > *', { y: -20, opacity: 0, duration: 0.8, stagger: 0.06 }, 0.9)
     .from(['.hero-title', '.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.3)
     .from('.hero-top > *', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
