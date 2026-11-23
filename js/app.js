@@ -2,6 +2,7 @@ import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { buildModel, priceOf, fmtINR, viewStats, warningsFor, zoneSpot } from './model.js';
 import { SeatMap, miniMap } from './map.js';
 import { SeatView } from './scene3d.js';
+import { REAL_PHOTOS } from './data/photos.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -323,6 +324,39 @@ function renderViewSheet() {
   $('#view-buy').textContent = `Buy · ${fmtINR(priceOf(m.venue, p.cat))}`;
   $('#view-crowd').textContent = `${view.crowdCount.toLocaleString('en-IN')} fans drawn around you`;
   miniMap($('#view-minimap'), m, p.point);
+  renderRealPhotos(m, p);
+}
+
+// Real photos from the stands, the closest tier first, so the 3D view can be checked against reality.
+function renderRealPhotos(m, p) {
+  const box = $('#view-real'); const list = REAL_PHOTOS[m.venue.id] || [];
+  const fab = $('#view-realbtn');
+  if (!list.length) { box.hidden = false; box.innerHTML = `<div class="real-head"><b>Real photos</b><span>No free photos of ${esc(m.venue.name)} yet</span></div>`; if (fab) fab.hidden = true; return; }
+  const nT = m.tierInfo?.length || 1, ti = p.section?.tierIdx;
+  const want = p.type === 'zone' ? 'floor' : ti === 0 ? 'lower' : ti === nT - 1 ? 'upper' : 'lower';
+  const rank = (x) => (x.tier === want ? 0 : x.tier === 'lower' && want === 'floor' ? 1 : 2);
+  const photos = [...list].sort((a, b) => rank(a) - rank(b));
+  box.hidden = false;
+  box.innerHTML = `<div class="real-head"><b>Real photos from ${esc(m.venue.name)}</b><span>${photos.some((x) => x.tier === want) ? 'Closest to your tier first' : 'No photo from your tier yet'}</span></div>
+    <div class="real-strip">${photos.map((x, i) => `<button type="button" class="real-ph" data-i="${i}"><img src="${x.thumb}" alt="${esc(x.label)}" loading="lazy"><span>${esc(x.label)}${x.tier === want ? ' · your tier' : ''}</span></button>`).join('')}</div>`;
+  for (const b of box.querySelectorAll('.real-ph')) b.onclick = () => openRealPhoto(photos, +b.dataset.i);
+  if (fab) { fab.hidden = false; fab.onclick = () => openRealPhoto(photos, 0); }
+}
+
+function openRealPhoto(list, i) {
+  let d = $('#real-lightbox');
+  if (!d) { d = h('div', 'real-lb'); d.id = 'real-lightbox'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', 'Real photo'); document.body.appendChild(d); }
+  const x = list[i], n = list.length;
+  d.hidden = false;
+  d.innerHTML = `<figure><img src="${x.src}" alt="${esc(x.label)}"><figcaption>${esc(x.label)} (${i + 1} of ${n}) · Photo: ${esc(x.credit)}, <a href="${x.page}" target="_blank" rel="noopener">${esc(x.licence)}</a> via Wikimedia Commons</figcaption></figure>
+    <button class="icon-btn lb-x" type="button" aria-label="Close photo">✕</button>
+    ${n > 1 ? '<button class="icon-btn lb-prev" type="button" aria-label="Previous photo">‹</button><button class="icon-btn lb-next" type="button" aria-label="Next photo">›</button>' : ''}`;
+  const close = () => { d.hidden = true; d.innerHTML = ''; window.removeEventListener('keydown', key, true); };
+  const go = (k) => { window.removeEventListener('keydown', key, true); openRealPhoto(list, (i + k + n) % n); };
+  const key = (e) => { if (['Escape', 'ArrowRight', 'ArrowLeft'].includes(e.key)) { e.stopImmediatePropagation(); e.preventDefault(); } if (e.key === 'Escape') close(); else if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1); };
+  window.addEventListener('keydown', key, true);
+  d.querySelector('.lb-x').onclick = close; d.onclick = (e) => { if (e.target === d) close(); };
+  if (n > 1) { d.querySelector('.lb-prev').onclick = () => go(-1); d.querySelector('.lb-next').onclick = () => go(1); }
 }
 
 // ---------------- checkout ----------------
