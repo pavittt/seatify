@@ -49,15 +49,14 @@
   <section class="stage" id="how">
     <div class="stage-pin">
       <div class="stage-frame" id="stage-frame">
-        <canvas id="fly-canvas" aria-label="A live 3D concert at Narendra Modi Stadium. Scrolling flies the camera into a seat."></canvas>
+        <div class="step-photos" id="step-photos" aria-hidden="true"></div>
         <div class="hero-photo" id="hero-photo" aria-hidden="true"><img src="assets/realphotos/sunburn_pyro.jpg" alt="" width="1100" height="733" fetchpriority="high"></div>
         <canvas id="mask-canvas" aria-hidden="true"></canvas>
         <div class="stage-shade" aria-hidden="true"></div>
         <div class="vf" aria-hidden="true">
-          <div class="vf-hud tl mono"><i class="rec"></i> Live · <span id="hud-venue">Narendra Modi Stadium</span></div>
-          <div class="vf-hud tr mono" id="hud-alt">ALT 112 M</div>
-          <div class="vf-hud bl mono" id="hud-seat">SEC — · ROW — · SEAT —</div>
-          <div class="vf-hud br mono" id="hud-count">00 / 03</div>
+          <div class="vf-hud tl mono"><i class="rec"></i> Real photo · <span id="hud-venue">—</span></div>
+          <div class="vf-hud bl mono" id="hud-seat">—</div>
+          <div class="vf-hud br mono" id="hud-count">01 / 03</div>
         </div>
       </div>
       <div class="hero-ov" id="hero-ov">
@@ -82,7 +81,7 @@
             <span class="nt-date led">12.12</span>
             <span class="nt-title">Neon Monsoon World Tour</span>
             <span class="nt-sub">Aarav &amp; The Satellites · Narendra Modi Stadium, Ahmedabad</span>
-            <span class="nt-view"><img src="assets/venues/nms.jpg" alt="" width="1600" height="1000"><em class="mono">Your view · Sec 113</em></span>
+            <span class="nt-view"><img src="assets/realphotos/narendra_modi_stadium_2023_final_between_india_a.jpg" alt="" width="1000" height="751"><em class="mono">Narendra Modi Stadium</em></span>
           </span>
           <span class="nt-stub">
             <span><span class="mono">From</span><b>₹2,000</b></span>
@@ -99,19 +98,18 @@
         </article>
         <article class="step" data-step="1">
           <span class="step-n">02</span>
-          <h2 class="display">Drop in</h2>
-          <p>The camera falls out of the sky and lands at your eye height, with the crowd packed around you.</p>
+          <h2 class="display">See your view</h2>
+          <p>Before you pay, see the stage from that exact seat, with the crowd and the tier above you in the shot.</p>
         </article>
         <article class="step" data-step="2">
           <span class="step-n">03</span>
           <h2 class="display">Know first</h2>
-          <p>Distance, angle, height and how big the screen looks. If a sound desk or the tier above cuts in, you hear it from us first.</p>
+          <p>Distance, angle, height and how big the screen looks. If a sound desk or a pillar cuts in, you hear it from us first.</p>
         </article>
       </div>
       <div class="fly-progress" aria-hidden="true"><i id="fly-bar"></i></div>
-      <div class="scroll-cue mono" aria-hidden="true"><span>Scroll to drop into a seat</span><i></i></div>
-      <div class="m3-tip" id="hero-tip" hidden></div>
-    </div>
+      <div class="scroll-cue mono" aria-hidden="true"><span>Scroll</span><i></i></div>
+          </div>
     <div class="curtain" id="curtain" aria-hidden="true"></div>
   </section>
 
@@ -149,7 +147,7 @@
       <div class="cube-copy">
         <p class="kicker mono">Every seat, every angle</p>
         <h2 class="display big"><span class="split">Turn the venue over</span></h2>
-        <p class="cube-note">Six seats at six venues, each rendered from the exact spot. Scroll to spin it.</p>
+        <p class="cube-note">Six venues, six real photos from the stands. Scroll to spin it.</p>
       </div>
       <div class="cube-scene"><div class="cube" id="cube"></div></div>
       <div class="cube-label mono" id="cube-label">—</div>
@@ -176,7 +174,7 @@
       <h2 class="display big"><span class="split">Where you sit changes everything</span></h2>
     </header>
     <div class="cmp-grid">
-      <div class="cmp-shot"><img src="assets/venues/nms.jpg" alt="View of the stage from a lower tier seat at Narendra Modi Stadium, rendered in Seatify's 3D view" loading="lazy" width="1600" height="1000"></div>
+      <div class="cmp-shot"><img src="assets/realphotos/narendra_modi_stadium_2023_final_between_india_a.jpg" alt="The lower tier of Narendra Modi Stadium, full house at dusk" loading="lazy" width="1000" height="751"></div>
       <div class="cmp-table-wrap"><table class="cmp" id="cmp-table"></table><p class="fine">Measured in Seatify's 3D model of Narendra Modi Stadium with a catwalk stage. Layout is approximate.</p></div>
     </div>
   </section>
@@ -214,7 +212,7 @@
     <div class="foot-cols mono">
       <p>Made for India's loudest nights.</p>
       <p>All venue layouts are approximate. Artists and shows are made up for this demo, and checkout takes no payment.</p>
-      <p>3D views are rendered in Seatify's own engine. Photos from Wikimedia Commons: Sunburn crowd by Vyacheslav Argenberg (CC BY 4.0), Sunburn stage by Tumbbadteranaamhai (CC BY-SA 4.0).</p>
+      <p id="photo-credits">Photos from Wikimedia Commons, used under their free licences.</p>
     </div>
   </footer>
 </main>
