@@ -288,10 +288,16 @@
     <button class="icon-btn glass" type="button" id="zoom-out" aria-label="Zoom out">−</button>
     <button class="icon-btn glass" type="button" id="recentre" aria-label="Look at the stage">◎</button>
   </div>
-  <button class="real-fab" type="button" id="view-realbtn" hidden>Real photos</button>
+  <div class="real-stage" id="real-stage" hidden></div>
+  <div class="view-scrim" aria-hidden="true"></div>
+  <div class="segs vmode" id="vmode" role="group" aria-label="What to show">
+    <button class="seg on" type="button" data-m="3d" aria-pressed="true">3D view</button>
+    <button class="seg" type="button" data-m="real" aria-pressed="false" id="view-realbtn">Real photo</button>
+  </div>
   <div class="view-sheet" id="view-sheet">
     <button class="grab" type="button" id="sheet-toggle" aria-expanded="true" aria-label="Show or hide seat details"></button>
     <div class="vs-body">
+      <div class="vs-head" id="vs-head"></div>
       <div class="vs-grid">
         <div class="minimap-wrap" id="view-minimap"></div>
         <div class="stats" id="view-stats"></div>
