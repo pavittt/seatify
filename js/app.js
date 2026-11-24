@@ -178,6 +178,7 @@ function setMode(mode) {
   scr.classList.toggle('is-map', mode === 'map');
   scr.classList.toggle('is-diving', mode === 'dive');
   scr.classList.toggle('is-seat', mode === 'seat');
+  if (mode !== 'seat') setViewMode('3d');
 }
 
 // ---------------- 3D stadium map ----------------
@@ -259,12 +260,13 @@ function stepSeat(dir) {
   renderSelection();
   view.buildCrowd({ x: p.point.x, y: p.point.y, z: p.point.z, seat: p.seat });
   view.hopTo(p.point, p.seat);
-  $('#view-pill').textContent = `View from ${pickLabel(p)}`;
+  $('#view-pill').textContent = pickLabel(p);
   setTimeout(renderViewSheet, 750);
 }
 
 function openView() {
   const p = state.pick; if (!p) return;
+  realIdx = 0;
   const m = state.model;
   view.showTitle = state.show ? state.show.artist : state.venue.name;
   // On phones and short windows start with the compact sheet so the 3D view stays visible.
@@ -283,7 +285,7 @@ function openView() {
     view.diveTo(p.point, p.seat || null);
     $('#view-loading').hidden = true;
   }, 30));
-  $('#view-pill').textContent = `View from ${pickLabel(p)}`;
+  $('#view-pill').textContent = pickLabel(p);
   $('#seat-prev').hidden = $('#seat-next').hidden = p.type !== 'seat';
   const tabs = $('#spot-tabs'); tabs.hidden = p.type !== 'zone'; tabs.innerHTML = '';
   if (p.type === 'zone') for (const where of ['front', 'middle', 'back']) {
@@ -293,7 +295,7 @@ function openView() {
       selectSpot(p.zone, where); const q = state.pick;
       for (const x of tabs.children) { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); }
       view.buildCrowd({ x: q.point.x, y: q.point.y, z: q.point.z }); view.hopTo(q.point, null);
-      $('#view-pill').textContent = `View from ${pickLabel(q)}`; setTimeout(renderViewSheet, 750);
+      $('#view-pill').textContent = pickLabel(q); setTimeout(renderViewSheet, 750);
     };
     tabs.appendChild(b);
   }
@@ -322,7 +324,10 @@ function renderViewSheet() {
     <div class="stat"><span>Height</span><b>${s.height < 0.5 ? 'Floor' : Math.round(s.height) + ' m up'}</b></div>`;
   $('#view-tv').innerHTML = `The main screen looks like a <b>${s.tvInches}″ TV</b> seen from your sofa (2.5 m away).`;
   $('#view-warn').innerHTML = warns.map((w) => `<li class="w-${w.level}">${esc(w.text)}</li>`).join('');
-  $('#view-buy').textContent = `Buy · ${fmtINR(priceOf(m.venue, p.cat))}`;
+  const price = fmtINR(priceOf(m.venue, p.cat));
+  const kind = p.type === 'zone' ? 'Standing' : `${CATS[p.cat]?.label || ''} · ${p.section.tier || ''}`;
+  $('#vs-head').innerHTML = `<div><span class="mono">${esc(kind)}</span><h3>${esc(pickLabel(p))}</h3></div><div class="vs-price"><b>${price}</b><span class="mono">per ticket</span></div>`;
+  $('#view-buy').textContent = `Buy · ${price}`;
   $('#view-crowd').textContent = `${view.crowdCount.toLocaleString('en-IN')} fans drawn around you`;
   miniMap($('#view-minimap'), m, p.point);
   renderRealPhotos(m, p);
@@ -330,19 +335,26 @@ function renderViewSheet() {
 }
 
 // Real photos from the stands, the closest tier first, so the 3D view can be checked against reality.
+let realList = [], realIdx = 0, realWant = '';
 function renderRealPhotos(m, p) {
   const box = $('#view-real'); const list = REAL_PHOTOS[m.venue.id] || [];
-  const fab = $('#view-realbtn');
-  if (!list.length) { box.hidden = false; box.innerHTML = `<div class="real-head"><b>Real photos</b><span>No free photos of ${esc(m.venue.name)} yet</span></div>`; if (fab) fab.hidden = true; return; }
+  const btn = $('#view-realbtn');
+  if (!list.length) {
+    realList = [];
+    box.hidden = false; box.innerHTML = `<div class="real-head"><b>Real photos</b><span>No free photos of ${esc(m.venue.name)} yet</span></div>`;
+    btn.disabled = true; btn.title = 'No free photos of this venue yet';
+    setViewMode('3d'); return;
+  }
   const nT = m.tierInfo?.length || 1, ti = p.section?.tierIdx;
   const want = p.type === 'zone' ? 'floor' : ti === 0 ? 'lower' : ti === nT - 1 ? 'upper' : 'lower';
   const rank = (x) => (x.tier === want ? 0 : x.tier === 'lower' && want === 'floor' ? 1 : 2);
-  const photos = [...list].sort((a, b) => rank(a) - rank(b));
+  realList = [...list].sort((a, b) => rank(a) - rank(b)); realWant = want;
+  btn.disabled = false; btn.title = '';
   box.hidden = false;
-  box.innerHTML = `<div class="real-head"><b>Real photos from ${esc(m.venue.name)}</b><span>${photos.some((x) => x.tier === want) ? 'Closest to your tier first' : 'No photo from your tier yet'}</span></div>
-    <div class="real-strip">${photos.map((x, i) => `<button type="button" class="real-ph" data-i="${i}"><img src="${x.thumb}" alt="${esc(x.label)}" loading="lazy"><span>${esc(x.label)}${x.tier === want ? ' · your tier' : ''}</span></button>`).join('')}</div>`;
-  for (const b of box.querySelectorAll('.real-ph')) b.onclick = () => openRealPhoto(photos, +b.dataset.i);
-  if (fab) { fab.hidden = false; fab.onclick = () => openRealPhoto(photos, 0); }
+  box.innerHTML = `<div class="real-head"><b>Real photos</b><span>${realList.some((x) => x.tier === want) ? 'Closest to your tier first' : 'None from your tier yet'}</span></div>
+    <div class="real-strip">${realList.map((x, i) => `<button type="button" class="real-ph" data-i="${i}"><img src="${x.thumb}" alt="${esc(x.label)}" loading="lazy"><span>${esc(x.label)}${x.tier === want ? ' · <em>your tier</em>' : ''}</span></button>`).join('')}</div>`;
+  for (const b of box.querySelectorAll('.real-ph')) b.onclick = () => { realIdx = +b.dataset.i; setViewMode('real'); };
+  if (scr.classList.contains('is-real')) { realIdx = Math.min(realIdx, realList.length - 1); renderRealStage(); }
 }
 
 // The real venue on Google Maps: satellite, Google Earth 3D and Street View, all keyless.
@@ -398,6 +410,39 @@ function openPlace(venue) {
   };
   $('#place-x').focus();
 }
+
+// 3D view or a real photo of the venue, full screen behind the seat panel
+function setViewMode(mode) {
+  if (mode === 'real' && !realList.length) mode = '3d';
+  scr.classList.toggle('is-real', mode === 'real');
+  for (const b of $('#vmode').children) { const on = b.dataset.m === mode; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); }
+  const st = $('#real-stage');
+  if (mode === 'real') { st.hidden = false; renderRealStage(); } else { st.hidden = true; st.innerHTML = ''; }
+}
+
+function renderRealStage() {
+  const st = $('#real-stage'); const n = realList.length; if (!n) return;
+  const x = realList[realIdx];
+  st.innerHTML = `<img class="rs-img" src="${x.src}" alt="${esc(x.label)}">
+    <div class="rs-cap"><span class="rs-tag mono">Real photo${x.tier === realWant ? ' · your tier' : ''}</span><b>${esc(x.label)}</b>
+      <small>Photo: ${esc(x.credit)}, <a href="${x.page}" target="_blank" rel="noopener">${esc(x.licence)}</a> via Wikimedia Commons</small></div>
+    ${n > 1 ? `<button class="icon-btn glass rs-prev" type="button" aria-label="Previous photo">‹</button><button class="icon-btn glass rs-next" type="button" aria-label="Next photo">›</button>
+    <div class="rs-dots">${realList.map((_, i) => `<i class="${i === realIdx ? 'on' : ''}"></i>`).join('')}</div>` : ''}
+    <button class="icon-btn glass rs-full" type="button" aria-label="Open full size">⤢</button>`;
+  const go = (k) => { realIdx = (realIdx + k + n) % n; renderRealStage(); };
+  if (n > 1) { st.querySelector('.rs-prev').onclick = () => go(-1); st.querySelector('.rs-next').onclick = () => go(1); }
+  st.querySelector('.rs-full').onclick = () => openRealPhoto(realList, realIdx);
+  let sx = null;
+  st.onpointerdown = (e) => { sx = e.clientX; };
+  st.onpointerup = (e) => { if (sx != null && Math.abs(e.clientX - sx) > 50) go(e.clientX < sx ? 1 : -1); sx = null; };
+}
+for (const b of $('#vmode').children) b.onclick = () => setViewMode(b.dataset.m);
+window.addEventListener('keydown', (e) => {
+  if (!scr.classList.contains('is-real')) return;
+  if ($('#real-lightbox') && !$('#real-lightbox').hidden) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); realIdx = (realIdx + (e.key === 'ArrowRight' ? 1 : -1) + realList.length) % realList.length; renderRealStage(); }
+  else if (e.key === 'Escape') { e.stopImmediatePropagation(); setViewMode('3d'); }
+}, true);
 
 function openRealPhoto(list, i) {
   let d = $('#real-lightbox');
