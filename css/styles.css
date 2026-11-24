@@ -567,21 +567,39 @@ html.layer-open .sticker, html:not(.ready) .sticker { opacity: 0; pointer-events
 .place-card em { font-style: normal; font-size: 12px; opacity: .7; }
 .place-ic { color: var(--lime); font-size: 20px; }
 .place-card:hover .place-ic { color: var(--ink); }
-.place-dlg { position: fixed; inset: 0; z-index: 95; background: rgba(5, 5, 9, 0.88); display: grid; place-items: center; padding: 16px; }
+.place-dlg { position: fixed; inset: 0; z-index: 95; background: rgba(5, 5, 9, 0.82); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 20px; }
 .place-dlg[hidden] { display: none; }
-.place-box { width: min(1100px, 100%); max-height: calc(100dvh - 32px); display: flex; flex-direction: column; gap: 12px; background: var(--ink); color: var(--bone); border: 1px solid var(--line); border-radius: 22px; padding: 18px; overflow: auto; }
+.place-box { width: min(1240px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; gap: 16px; background: var(--ink-2); color: var(--bone); border: 1px solid var(--line); border-radius: 26px; padding: 20px; overflow: auto; box-shadow: 0 40px 120px rgba(0, 0, 0, .6); }
 .place-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.place-top h3 { font: 500 clamp(22px, 3vw, 34px)/1.05 var(--display); letter-spacing: -0.03em; margin: 4px 0 2px; }
-.place-top .meta { font-size: 13px; opacity: .7; }
-.place-segs { margin: 0; width: min(260px, 100%); }
-.place-frame { position: relative; flex: none; min-height: 260px; height: min(62dvh, 640px); border-radius: 14px; overflow: hidden; background: #111; }
+.place-top .kicker { color: var(--lime); }
+.place-top h3 { font: 500 clamp(26px, 3.4vw, 44px)/1 var(--display); letter-spacing: -0.035em; margin: 6px 0 6px; }
+.place-top .meta { font-size: 13px; color: var(--mute); }
+.place-main { display: grid; grid-template-columns: 1fr 320px; gap: 16px; min-height: 0; }
+.place-frame { position: relative; height: min(64dvh, 660px); min-height: 300px; border-radius: 18px; overflow: hidden; background: #1a1d17; border: 1px solid var(--line); }
 .place-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.place-links { display: flex; flex-wrap: wrap; gap: 8px; }
-.place-links .ghost { text-decoration: none; color: inherit; padding: 10px 14px; }
-.place-dlg .fine { margin: 0; font-size: 12px; opacity: .7; }
+.place-segs { position: absolute; top: 12px; left: 12px; margin: 0; width: 220px; background: rgba(13, 11, 20, .78); backdrop-filter: blur(10px); border-color: var(--line-2); }
+.place-pin { position: absolute; left: 12px; bottom: 12px; font-size: 11px; padding: 7px 12px; border-radius: 999px; background: rgba(13, 11, 20, .78); backdrop-filter: blur(10px); color: var(--lime); pointer-events: none; }
+.place-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pl-ours { position: relative; margin: 0; border-radius: 16px; overflow: hidden; aspect-ratio: 16 / 10; background: var(--ink-3); }
+.pl-ours img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pl-ours figcaption { position: absolute; inset: auto 0 0 0; padding: 26px 12px 10px; display: grid; gap: 1px; background: linear-gradient(transparent, rgba(5, 5, 9, .85)); font-size: 13px; }
+.pl-ours figcaption span { font-size: 11.5px; color: var(--mute); }
+.pl-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pl-tile { position: relative; display: grid; gap: 2px; padding: 12px; border-radius: 14px; border: 1px solid var(--line-2); color: inherit; text-decoration: none; transition: background .25s, color .25s, transform .25s; }
+.pl-tile:hover, .pl-tile:focus-visible { background: var(--lime); color: var(--ink); transform: translateY(-2px); }
+.pl-tile b { font-size: 14px; }
+.pl-tile em { font-style: normal; font-size: 11.5px; opacity: .7; }
+.pl-tile i { position: absolute; top: 10px; right: 12px; font-style: normal; opacity: .6; }
+.pl-ic { font-size: 20px; color: var(--lime); margin-bottom: 4px; }
+.pl-tile:hover .pl-ic, .pl-tile:focus-visible .pl-ic { color: var(--ink); }
+.place-side .fine { margin: 0; font-size: 12px; line-height: 1.45; color: var(--mute); }
+@media (max-width: 900px) {
+  .place-main { grid-template-columns: 1fr; }
+  .pl-ours { display: none; }
+}
 @media (max-width: 560px) {
   .place-dlg { padding: 0; }
-  .place-box { border-radius: 0; max-height: 100dvh; height: 100dvh; padding: 14px 16px; }
-  .place-frame { flex: 1; height: auto; }
+  .place-box { border-radius: 0; max-height: 100dvh; height: 100dvh; padding: 14px 16px; gap: 12px; }
+  .place-frame { height: 52dvh; min-height: 260px; }
   .map-place { display: none; }
 }
