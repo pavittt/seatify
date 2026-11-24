@@ -12,7 +12,6 @@
 //   footer  – flame haze and a wordmark that fills from the bottom
 import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { priceOf, fmtINR, viewStats, zoneSpot } from './model.js';
-import { SeatView } from './scene3d.js';
 import { REAL_PHOTOS } from './data/photos.js';
 import { openMap, getModel, openDemo } from './app.js';
 
@@ -31,8 +30,13 @@ const img = (id) => `assets/venues/${id}.jpg`;
 const rnd = (a, b) => a + Math.random() * (b - a);
 // a real photo of the venue where we have one, otherwise our own render
 const realOf = (id) => (REAL_PHOTOS[id] || [])[0];
-const thumbOf = (id) => realOf(id)?.thumb || img(id);
-const bigOf = (id) => realOf(id)?.src || img(id);
+// best real photo per venue: night (show-like) shots first; null where we have none
+const bestOf = (id) => { const l = REAL_PHOTOS[id] || []; return l.find((x) => x.when === 'night') || l[0] || null; };
+const thumbOf = (id) => bestOf(id)?.thumb || null;
+const bigOf = (id) => bestOf(id)?.src || null;
+const used = new Map();   // every photo shown on the page, for the credits line
+const photo = (ph) => { if (ph) used.set(ph.src, ph); return ph ? ph.src : ''; };
+const venueImg = (id, cls = '', alt = '') => { const ph = bestOf(id); return ph ? `<img src="${esc(photo(ph))}" alt="${esc(alt)}" loading="lazy" draggable="false">` : `<span class="no-photo ${cls}"><b>${esc((venueById(id)?.name || '').split(' ')[0])}</b><em class="mono">Photo soon</em></span>`; };
 
 // ---------- smooth scroll ----------
 let loco = null, lenis = null, velocity = 0;
@@ -49,8 +53,8 @@ const scrollToEl = (sel) => { const el = $(sel); if (!el) return; if (loco) loco
 for (const a of $$('a[data-scroll-to]')) a.addEventListener('click', (e) => { e.preventDefault(); scrollToEl(a.getAttribute('href')); });
 
 window.addEventListener('seatify:layer', (e) => {
-  if (e.detail.open) { loco?.stop(); fly.view?.stop(); }
-  else { loco?.start(); if (fly.visible) fly.view?.start(); if (hasGsap) ScrollTrigger.refresh(); }
+  if (e.detail.open) loco?.stop();
+  else { loco?.start(); if (hasGsap) ScrollTrigger.refresh(); }
 });
 
 // ---------- helpers ----------
@@ -85,48 +89,20 @@ $('#next-ticket').onclick = openFirst;
 const ntPerf = () => { const t = $('#next-ticket'); t.style.setProperty('--perf', t.querySelector('.nt-top').offsetHeight + 'px'); };
 ntPerf(); document.fonts?.ready.then(ntPerf); addEventListener('resize', ntPerf);
 
-// ---------- STAGE: live 3D in a frame that grows, then flies into a seat ----------
+// ---------- STAGE: real photos from the stands, one per step ----------
 const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
-const fly = { view: null, visible: true, built: false };
-function buildFly() {
-  const v = venueById('nms');
-  const model = getModel(v, 'catwalk');
-  // a lower-tier seat with a clear line to the stage: no delay tower or sound desk in the way
-  const st = model.stage, fz = st.zBack + st.d * 0.4;
-  // check sight lines to five points across the stage, not just its centre
-  const clear = (p) => [-0.5, -0.25, 0, 0.25, 0.5].every((k) => model.obstacles.every((o) => {
-    if (o.type !== 'tower') return true;
-    const fx = st.w * k, dx = fx - p.x, dz = fz - p.z, L2 = dx * dx + dz * dz;
-    const t = Math.max(0, Math.min(1, ((o.x - p.x) * dx + (o.z - p.z) * dz) / L2));
-    return Math.hypot(p.x + dx * t - o.x, p.z + dz * t - o.z) > Math.max(o.w, o.d) / 2 + 1.5;
-  }));
-  let sec, row, seat;
-  const cands = model.sections.filter((s) => s.tierIdx === 0 && !s.closed && !s.sideStage && s.availability !== 'soldout').sort((a, b) => Math.abs(a.phi - 38) - Math.abs(b.phi - 38));
-  for (const c of cands) { const r = c.getRows()[9]; const st2 = r.seats[Math.floor(r.seats.length / 2)]; if (clear(st2)) { sec = c; row = r; seat = st2; break; } }
-  if (!sec) { sec = cands[0]; row = sec.getRows()[9]; seat = row.seats[Math.floor(row.seats.length / 2)]; }
-  const view = new SeatView($('#fly-canvas'), { interactive: false, background: '#07060c' });
-  view.showTitle = firstShow.artist;
-  view.load(model);
-  view.buildCrowd({ x: seat.x, y: seat.y, z: seat.z, seat }, { cap: finePointer ? 26000 : 11000 });
-  // desktop: the bowl sits to the right of the headline; phones: below it
-  const wide = innerWidth / innerHeight > 0.9, b = model.bounds;
-  view.prepareScrubDive({ x: seat.x, y: seat.y, z: seat.z }, seat, wide ? { zoom: 0.6 } : { zoom: 0.85 });
-  // the stadium starts dark: only your seat glows, until the intro wave lights every chair
-  view.revealOrigin.value.set(seat.x, seat.z);
-  view.reveal.value = motion ? 0 : 1e6;
-  view.houseMix = motion ? 0 : 1; view.houseTarget = motion ? 0.05 : 1;
-  let far = 0; for (const s2 of model.sections) if (s2.center) far = Math.max(far, Math.hypot(s2.center[0] - seat.x, s2.center[1] - seat.z));
-  fly.far = far + 60;
-  view.start();
-  fly.view = view; fly.built = true;
-  fly.label = `SEC ${sec.id} · ROW ${row.label} · SEAT ${seat.n}`;
-  fly.stats = viewStats(model, { x: seat.x, y: seat.y, z: seat.z });
+const fly = { visible: true };
+const STEP_SHOTS = [
+  ['dyp', 'dy_patil_ipl'],
+  ['jln', 'jln_lower_night'],
+  ['dyp', 'dyp_dualipa_2019'],
+].map(([id, key]) => ({ id, ph: (REAL_PHOTOS[id] || []).find((x) => x.src.includes(key)) || bestOf(id) }));
+function buildSteps() {
+  $('#step-photos').innerHTML = STEP_SHOTS.map((s) => `<figure class="sp"><img src="${esc(photo(s.ph))}" alt="" loading="lazy"></figure>`).join('');
 }
-
-
 // ---------- MASK: a follow spot over a real concert photo ----------
 // A 2D canvas laid over the hero photo: a dark veil with a soft hole that follows the cursor (it drifts
-// on its own on touch screens). Scrolling pushes into the photo and fades it away into the 3D stadium.
+// on its own on touch screens). Scrolling pushes into the photo, the house goes dark, then the step photos fade up.
 const mask = { cv: null, ctx: null, zq: 0, spot: { x: 0, y: 0, tx: 0, ty: 0, a: 0 }, L: null, done: false, raf: 0, user: false };
 function layoutMask() {
   const cv = mask.cv; if (!cv) return;
@@ -148,7 +124,7 @@ function drawMask() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, W, H);
-  // the house goes to black between the photo and the 3D stadium, then the stadium fades up
+  // the house goes to black between the hero photo and the step photos, then they fade up
   const veil = z < 0.62 ? 0.74 + 0.26 * (z / 0.62) : 1 - (z - 0.62) / 0.38;
   ctx.fillStyle = `rgba(5,5,5,${veil.toFixed(3)})`; ctx.fillRect(0, 0, W, H);
   const sp = mask.spot, sa = sp.a * (1 - clamp01(z * 2.6));
@@ -185,51 +161,37 @@ function setupMask(pin) {
 
 function setupStage() {
   const pin = $('.stage-pin');
-  const steps = $$('.step'); const bar = $('#fly-bar');
-  const hudAlt = $('#hud-alt'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
+  buildSteps();
+  const steps = $$('.step'), shots = $$('#step-photos .sp'); const bar = $('#fly-bar');
+  const hudVenue = $('#hud-venue'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
   let last = -2;
   const setStep = (i) => {
     if (i === last) return; last = i;
     steps.forEach((el, k) => el.classList.toggle('on', k === i));
     if (i >= 0) {
+      const s = STEP_SHOTS[i];
       hudCount.textContent = `0${i + 1} / 03`;
+      hudVenue.textContent = venueById(s.id).name;
+      hudSeat.textContent = s.ph ? `${s.ph.label} · ${s.ph.credit}, ${s.ph.licence}` : '';
       if (motion) gsap.fromTo(steps[i].children, { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.8, stagger: 0.07, ease: 'expo.out', overwrite: true });
     }
   };
   const update = (p) => {
     mask.zq = clamp01(p / 0.2); drawMask();
     const q = clamp01((p - 0.19) / 0.78);
-    fly.q = q;
-    fly.view?.setDiveP(Math.min(1, q * 1.08));
-    if (q > 0.01 && fly.view) { fly.view.setHover(null); $('#hero-tip').hidden = true; }
+    // each photo holds for a third of the run, cross-fading into the next while it slowly pushes in
+    shots.forEach((el, k) => {
+      const c = (k + 0.5) / 3, d = Math.abs(q - c) * 3;
+      el.style.opacity = clamp01(1.6 - d * 1.4).toFixed(3);
+      el.style.transform = `scale(${(1.06 + (q - c) * 0.35).toFixed(4)})`;
+    });
     const sv = clamp01((p - 0.2) / 0.06);
     pin.style.setProperty('--steps', sv.toFixed(3));
-    setStep(sv < 0.5 ? -1 : q < 0.36 ? 0 : q < 0.72 ? 1 : 2);
+    setStep(sv < 0.5 ? -1 : q < 0.34 ? 0 : q < 0.67 ? 1 : 2);
     bar.style.transform = `scaleX(${q})`;
-    if (fly.view) hudAlt.textContent = `ALT ${Math.max(0, Math.round(fly.view.camera.position.y))} M`;
-    hudSeat.textContent = q > 0.55 && fly.label ? fly.label + (q > 0.8 ? ` · ${Math.round(fly.stats.dist)} M TO STAGE` : '') : 'SEC — · ROW — · SEAT —';
   };
-  const tip = $('#hero-tip');
-  let heroItem = null;
-  pin.addEventListener('pointermove', (e) => {
-    const v = fly.view;
-    if (!v || !mask.done || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-row')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
-    const it = v.pickAt(e.clientX, e.clientY);
-    if (it !== heroItem) { heroItem = it; v.setHover(it); }
-    if (!it) { tip.hidden = true; return; }
-    const m = v.model; let free = 0;
-    if (it.kind !== 'zone') for (const r of it.getRows()) for (const st of r.seats) if (!st.sold) free++;
-    tip.innerHTML = `<b>${esc(it.kind === 'zone' ? it.label : 'Sec ' + it.id)}</b><span>${esc(it.kind === 'zone' ? 'Standing' : CATS[it.cat].label + ' · ' + it.tier)} · ${fmtINR(priceOf(m.venue, it.cat))}</span><em>${it.kind === 'zone' ? 'Click to stand here' : free ? free.toLocaleString('en-IN') + ' free · click to fly in' : 'Sold out'}</em>`;
-    tip.hidden = false; tip.style.left = Math.min(innerWidth - 220, e.clientX + 18) + 'px'; tip.style.top = Math.max(70, e.clientY - 20) + 'px';
-  });
-  pin.addEventListener('pointerleave', () => { heroItem = null; fly.view?.setHover(null); tip.hidden = true; });
-  pin.addEventListener('click', (e) => {
-    if (!heroItem || e.target.closest('button, a')) return;
-    const it = heroItem; heroItem = null; tip.hidden = true; fly.view?.setHover(null);
-    openFirst(); window.__seatify?.pick3d(it);
-  });
   setupMask(pin);
-  if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); return; }
+  if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); shots.forEach((el) => (el.style.opacity = 1)); return; }
   const tl = gsap.timeline({
     defaults: { ease: 'none' },
     scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.4, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
@@ -243,10 +205,7 @@ function setupStage() {
     .to('.scroll-cue', { opacity: 0, duration: 0.04 }, 0)
     .to({}, { duration: 0.93 });
   update(0);
-  ScrollTrigger.create({
-    trigger: '#how', start: 'top bottom', end: 'bottom top',
-    onToggle: (self) => { fly.visible = self.isActive; if (self.isActive && !document.documentElement.classList.contains('layer-open')) fly.view?.start(); else fly.view?.stop(); },
-  });
+  ScrollTrigger.create({ trigger: '#how', start: 'top bottom', end: 'bottom top', onToggle: (self) => { fly.visible = self.isActive; } });
 }
 
 // ---------- marquees: speed and skew follow scroll velocity ----------
@@ -282,7 +241,7 @@ function stickerSpin(boost) { stickerA = (stickerA + 0.35 + boost * 0.6) % 360; 
 function setupSwarm() {
   const sw = $('#swarm');
   const lefts = [4, 68, 30, 82, 12, 52, 74, 22, 60, 38];
-  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%"><img src="${img(s.venue)}" alt="" loading="lazy" width="1600" height="1000"><span>${esc(s.title)}</span></div>`).join('');
+  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%">${venueImg(s.venue)}<span>${esc(s.title)}</span></div>`).join('');
   if (!motion) return;
   const cards = $$('.sw-card', sw);
   const tl = gsap.timeline({ defaults: { ease: 'none' }, scrollTrigger: { trigger: '.swarm-sec', start: 'top top', end: () => '+=' + innerHeight * 2.2, pin: '.swarm-pin', scrub: 0.8, invalidateOnRefresh: true } });
@@ -306,7 +265,7 @@ function setupShows() {
     const tag = i === 0 ? 'Fast selling' : i % 4 === 1 ? 'Few left' : i % 3 === 0 ? 'New' : '';
     return `<button class="show-card tilt" type="button" data-cursor="Pick seats" data-i="${i}">
       <span class="sc-top">
-        <span class="sc-img"><img src="${img(s.venue)}" alt="Seatify render of ${esc(v.name)} from the stands" loading="lazy" width="1600" height="1000" draggable="false"></span>
+        <span class="sc-img">${venueImg(s.venue, '', `Photo of ${v.name}`)}</span>
         ${tag ? `<span class="sc-tag mono">${tag}</span>` : ''}
         <span class="sc-n">${String(i + 1).padStart(2, '0')}</span>
         <span class="sc-meta mono">${esc(s.date)} · ${esc(s.time)} · ${esc(cityOf(v))}</span>
@@ -350,11 +309,11 @@ function setupShows() {
 
 // ---------- CUBE: seat views on a cube that grows and turns ----------
 function setupCube() {
-  const ids = ['nms', 'dyp', 'jln', 'mahalaxmi', 'saltlake', 'nsci'];
+  const ids = ['nms', 'dyp', 'jln', 'vagator', 'saltlake', 'mahalaxmi'];
   const picks = ids.map(venueById).filter(Boolean);
   while (picks.length < 6) picks.push(VENUES[picks.length]);
   const cube = $('#cube'), label = $('#cube-label');
-  cube.innerHTML = picks.map((v) => `<div class="cube-face"><img src="${img(v.id)}" alt="Seatify render of the view at ${esc(v.name)}" loading="lazy" width="1600" height="1000"><span>${esc(v.name)}</span></div>`).join('');
+  cube.innerHTML = picks.map((v) => `<div class="cube-face">${venueImg(v.id, '', `Photo of ${v.name}`)}<span>${esc(v.name)}</span></div>`).join('');
   const names = picks.map((v) => `${v.name} · ${cityOf(v)}`);
   label.textContent = names[0];
   if (!motion) { cube.style.transform = 'rotateX(-14deg) rotateY(24deg)'; return; }
@@ -438,7 +397,7 @@ function renderVenues() {
   $('#v-index').innerHTML = list.map((v) => `
     <li><button type="button" class="v-row" data-id="${v.id}" data-cursor="Open map">
       <span class="v-n mono">${String(VENUES.indexOf(v) + 1).padStart(2, '0')}</span>
-      <span class="v-thumb"><img src="${esc(thumbOf(v.id))}" alt="" loading="lazy"></span>
+      <span class="v-thumb">${thumbOf(v.id) ? `<img src="${esc(thumbOf(v.id))}" alt="" loading="lazy">` : '<span class="no-photo"></span>'}</span>
       <span class="v-name" aria-label="${esc(v.name)}">${flaps(v.name)}</span>
       <span class="v-city mono">${esc(v.city)}</span>
       <span class="v-kind mono">${v.kind === 'ground' ? 'Open ground' : v.kind === 'arena' ? 'Indoor arena' : 'Stadium'}</span>
@@ -479,7 +438,7 @@ function setupVenuePreview() {
   let lastX = 0;
   $('#v-index').addEventListener('pointermove', (e) => {
     const row = e.target.closest('.v-row'); if (!row) return;
-    const src = bigOf(row.dataset.id); if (!pimg.src.endsWith(src)) pimg.src = src;
+    const src = bigOf(row.dataset.id); if (!src) { pv.classList.remove('on'); return; } if (!pimg.src.endsWith(src)) pimg.src = src;
     xTo(e.clientX); yTo(e.clientY);
     gsap.to(pv, { rotate: Math.max(-8, Math.min(8, (e.clientX - lastX) * 0.4)), duration: 0.4 }); lastX = e.clientX;
     pv.classList.add('on');
@@ -559,14 +518,6 @@ function intro() {
     .from(['.hero-title', '.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.3)
     .from('.hero-top > *', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
     .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.6);
-  const v = fly.view;
-  if (v) {
-    // one seat glows in the dark, then a wave of light runs out from it across every chair
-    fly.waking = true;
-    tl.add(() => { v.houseTarget = 1; }, 1.5)
-      .to(v.reveal, { value: fly.far || 400, duration: 3.2, ease: 'power2.in' }, 1.1)
-      .add(() => { v.reveal.value = 1e6; fly.waking = false; }, 4.4);
-  }
 }
 
 function preload(work) {
@@ -598,4 +549,8 @@ setupVenuePreview();
 setupPointerFx();
 setupReveals();
 setupFooter();
-preload(() => { buildFly(); if (hasGsap) ScrollTrigger.refresh(); });
+// credits for every photo shown, plus the two hero/footer festival shots
+const fixed = (REAL_PHOTOS.vagator || []).filter((x) => /sunburn_(pyro|crowd)/.test(x.src));
+for (const ph of fixed) used.set(ph.src, ph);
+$('#photo-credits').textContent = 'Photos from Wikimedia Commons: ' + [...used.values()].map((ph) => `${ph.credit} (${ph.licence})`).filter((v, i, a) => a.indexOf(v) === i).join(', ') + '.';
+preload(() => { if (hasGsap) ScrollTrigger.refresh(); });
