@@ -578,7 +578,7 @@ html.layer-open .sticker, html:not(.ready) .sticker { opacity: 0; pointer-events
 .place-frame { position: relative; height: min(64dvh, 660px); min-height: 300px; border-radius: 18px; overflow: hidden; background: #1a1d17; border: 1px solid var(--line); }
 .place-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .place-segs { position: absolute; top: 12px; left: 12px; margin: 0; width: 220px; background: rgba(13, 11, 20, .78); backdrop-filter: blur(10px); border-color: var(--line-2); }
-.place-pin { position: absolute; left: 12px; bottom: 12px; font-size: 11px; padding: 7px 12px; border-radius: 999px; background: rgba(13, 11, 20, .78); backdrop-filter: blur(10px); color: var(--lime); pointer-events: none; }
+.place-pin { position: absolute; left: 12px; top: 58px; font-size: 11px; padding: 7px 12px; border-radius: 999px; background: rgba(13, 11, 20, .78); backdrop-filter: blur(10px); color: var(--lime); pointer-events: none; }
 .place-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .pl-ours { position: relative; margin: 0; border-radius: 16px; overflow: hidden; aspect-ratio: 16 / 10; background: var(--ink-3); }
 .pl-ours img { width: 100%; height: 100%; object-fit: cover; display: block; }
