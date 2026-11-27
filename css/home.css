@@ -302,7 +302,7 @@ html.layer-open .cursor { display: none; }
 @media (min-width: 900px) { .cmp-grid { grid-template-columns: 1fr 1.05fr; } }
 .cmp-shot { overflow: hidden; aspect-ratio: 16 / 10; max-width: 100%; position: relative; }
 .cmp-shot img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; scale: 1.15; }
-.cmp-shot::before { content: "VIEW · SEC 105 · ROW K"; position: absolute; left: 0; top: 0; z-index: 1; font: 600 10.5px var(--mono); background: var(--flame); color: var(--ink); padding: 6px 10px; }
+.cmp-shot::before { content: "REAL PHOTO · LOWER TIER, FULL HOUSE"; position: absolute; left: 0; top: 0; z-index: 1; font: 600 10.5px var(--mono); background: var(--flame); color: var(--ink); padding: 6px 10px; }
 .cmp-table-wrap { min-width: 0; overflow-x: auto; background: #0c0c0b; border: 1.5px solid #262522; padding: 6px 16px 14px; }
 .cmp { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13px; }
 .cmp th, .cmp td { text-align: left; padding: 13px 10px 13px 0; border-bottom: 1px solid var(--line); vertical-align: middle; white-space: nowrap; }
@@ -404,3 +404,16 @@ html.layer-open .sticker, html:not(.ready) .sticker { opacity: 0; pointer-events
   .swarm { display: none; }
   .lines li { opacity: 1; }
 }
+
+/* ---------- step photos (real photos instead of the 3D stadium) ---------- */
+.step-photos { position: absolute; inset: 0; overflow: hidden; background: var(--ink); }
+.step-photos .sp { position: absolute; inset: 0; margin: 0; opacity: 0; will-change: opacity, transform; }
+.step-photos img { width: 100%; height: 100%; object-fit: cover; filter: contrast(1.06) saturate(1.05); }
+.stage-shade { opacity: 1; background: linear-gradient(90deg, rgba(6,6,6,.85) 0%, rgba(6,6,6,.35) 45%, rgba(6,6,6,0) 70%), linear-gradient(0deg, rgba(6,6,6,.75) 0%, rgba(6,6,6,0) 32%); }
+.vf-hud.bl { color: var(--bone); opacity: .8; max-width: 80vw; text-overflow: ellipsis; }
+/* a venue we have no free photo for yet: a typographic tile, never a render */
+.no-photo { display: grid; place-content: center; justify-items: center; gap: 6px; width: 100%; height: 100%; min-height: 60px; background: repeating-linear-gradient(135deg, #141412 0 10px, #1b1a18 10px 20px); color: var(--bone); text-align: center; }
+.no-photo b { font: 900 clamp(22px, 3vw, 40px)/.9 var(--display); text-transform: uppercase; }
+.no-photo em { font-style: normal; font-size: 9.5px; opacity: .6; }
+.sw-card .no-photo b { font-size: 22px; }
+.cmp-shot img, .nt-view img { object-position: 50% 92%; }
