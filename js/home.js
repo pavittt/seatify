@@ -12,7 +12,6 @@
 //   footer  – flame haze and a wordmark that fills from the bottom
 import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { priceOf, fmtINR, viewStats, zoneSpot } from './model.js';
-import { REAL_PHOTOS } from './data/photos.js';
 import { openMap, getModel, openDemo } from './app.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -28,14 +27,11 @@ const cityOf = (v) => v.city.split(' (')[0];
 const venueById = (id) => VENUES.find((v) => v.id === id);
 const img = (id) => `assets/venues/${id}.jpg`;
 const rnd = (a, b) => a + Math.random() * (b - a);
-// a real photo of the venue where we have one, otherwise our own render
-const realOf = (id) => (REAL_PHOTOS[id] || [])[0];
-// best real photo per venue: night (show-like) shots first; null where we have none
-const bestOf = (id) => { const l = REAL_PHOTOS[id] || []; return l.find((x) => x.when === 'night') || l[0] || null; };
+// our own 3D render of each venue on show night
+const bestOf = (id) => (venueById(id) ? { src: img(id), thumb: img(id) } : null);
 const thumbOf = (id) => bestOf(id)?.thumb || null;
 const bigOf = (id) => bestOf(id)?.src || null;
-const used = new Map();   // every photo shown on the page, for the credits line
-const photo = (ph) => { if (ph) used.set(ph.src, ph); return ph ? ph.src : ''; };
+const photo = (ph) => (ph ? ph.src : '');
 const venueImg = (id, cls = '', alt = '') => { const ph = bestOf(id); return ph ? `<img src="${esc(photo(ph))}" alt="${esc(alt)}" loading="lazy" draggable="false">` : `<span class="no-photo ${cls}"><b>${esc((venueById(id)?.name || '').split(' ')[0])}</b><em class="mono">Photo soon</em></span>`; };
 
 // ---------- smooth scroll ----------
@@ -89,14 +85,10 @@ $('#next-ticket').onclick = openFirst;
 const ntPerf = () => { const t = $('#next-ticket'); t.style.setProperty('--perf', t.querySelector('.nt-top').offsetHeight + 'px'); };
 ntPerf(); document.fonts?.ready.then(ntPerf); addEventListener('resize', ntPerf);
 
-// ---------- STAGE: real photos from the stands, one per step ----------
+// ---------- STAGE: a show-night view per step ----------
 const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
 const fly = { visible: true };
-const STEP_SHOTS = [
-  ['dyp', 'dy_patil_ipl'],
-  ['jln', 'jln_lower_night'],
-  ['dyp', 'dyp_dualipa_2019'],
-].map(([id, key]) => ({ id, ph: (REAL_PHOTOS[id] || []).find((x) => x.src.includes(key)) || bestOf(id) }));
+const STEP_SHOTS = ['dyp', 'jln', 'saltlake'].map((id) => ({ id, ph: bestOf(id) }));
 function buildSteps() {
   $('#step-photos').innerHTML = STEP_SHOTS.map((s) => `<figure class="sp"><img src="${esc(photo(s.ph))}" alt="" loading="lazy"></figure>`).join('');
 }
@@ -172,7 +164,7 @@ function setupStage() {
       const s = STEP_SHOTS[i];
       hudCount.textContent = `0${i + 1} / 03`;
       hudVenue.textContent = venueById(s.id).name;
-      hudSeat.textContent = s.ph ? `${s.ph.label} · ${s.ph.credit}, ${s.ph.licence}` : '';
+      hudSeat.textContent = `${venueById(s.id).city.split(' (')[0]} · Show night in 3D`;
       if (motion) gsap.fromTo(steps[i].children, { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.8, stagger: 0.07, ease: 'expo.out', overwrite: true });
     }
   };
@@ -549,8 +541,4 @@ setupVenuePreview();
 setupPointerFx();
 setupReveals();
 setupFooter();
-// credits for every photo shown, plus the two hero/footer festival shots
-const fixed = (REAL_PHOTOS.vagator || []).filter((x) => /sunburn_(pyro|crowd)/.test(x.src));
-for (const ph of fixed) used.set(ph.src, ph);
-$('#photo-credits').textContent = 'Photos from Wikimedia Commons: ' + [...used.values()].map((ph) => `${ph.credit} (${ph.licence})`).filter((v, i, a) => a.indexOf(v) === i).join(', ') + '.';
 preload(() => { if (hasGsap) ScrollTrigger.refresh(); });
