@@ -10,8 +10,10 @@
 //   compare – an LED scoreboard with a spotlight that follows the pointer
 //   venues  – a split-flap departure board that flips on hover
 //   footer  – flame haze and a wordmark that fills from the bottom
+import * as THREE from 'three';
 import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { priceOf, fmtINR, viewStats, zoneSpot } from './model.js';
+import { SeatView } from './scene3d.js';
 import { openMap, getModel, openDemo } from './app.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -27,12 +29,6 @@ const cityOf = (v) => v.city.split(' (')[0];
 const venueById = (id) => VENUES.find((v) => v.id === id);
 const img = (id) => `assets/venues/${id}.jpg`;
 const rnd = (a, b) => a + Math.random() * (b - a);
-// our own 3D render of each venue on show night
-const bestOf = (id) => (venueById(id) ? { src: img(id), thumb: img(id) } : null);
-const thumbOf = (id) => bestOf(id)?.thumb || null;
-const bigOf = (id) => bestOf(id)?.src || null;
-const photo = (ph) => (ph ? ph.src : '');
-const venueImg = (id, cls = '', alt = '') => { const ph = bestOf(id); return ph ? `<img src="${esc(photo(ph))}" alt="${esc(alt)}" loading="lazy" draggable="false">` : `<span class="no-photo ${cls}"><b>${esc((venueById(id)?.name || '').split(' ')[0])}</b><em class="mono">Photo soon</em></span>`; };
 
 // ---------- smooth scroll ----------
 let loco = null, lenis = null, velocity = 0;
@@ -49,8 +45,8 @@ const scrollToEl = (sel) => { const el = $(sel); if (!el) return; if (loco) loco
 for (const a of $$('a[data-scroll-to]')) a.addEventListener('click', (e) => { e.preventDefault(); scrollToEl(a.getAttribute('href')); });
 
 window.addEventListener('seatify:layer', (e) => {
-  if (e.detail.open) loco?.stop();
-  else { loco?.start(); if (hasGsap) ScrollTrigger.refresh(); }
+  if (e.detail.open) { loco?.stop(); fly.view?.stop(); }
+  else { loco?.start(); if (fly.visible) fly.view?.start(); if (hasGsap) ScrollTrigger.refresh(); }
 });
 
 // ---------- helpers ----------
@@ -81,61 +77,130 @@ $('#hero-cta').onclick = openFirst;
 $('#foot-cta').onclick = openFirst;
 $('#hero-demo').onclick = () => openDemo();
 $('#hero-sticker').onclick = () => openDemo();
-$('#next-ticket').onclick = openFirst;
-const ntPerf = () => { const t = $('#next-ticket'); t.style.setProperty('--perf', t.querySelector('.nt-top').offsetHeight + 'px'); };
-ntPerf(); document.fonts?.ready.then(ntPerf); addEventListener('resize', ntPerf);
 
-// ---------- STAGE: a show-night view per step ----------
-const heroChars = $$('.hero-title .split').flatMap((el) => splitChars(el));
-const fly = { visible: true };
-const STEP_SHOTS = ['dyp', 'jln', 'saltlake'].map((id) => ({ id, ph: bestOf(id) }));
-function buildSteps() {
-  $('#step-photos').innerHTML = STEP_SHOTS.map((s) => `<figure class="sp"><img src="${esc(photo(s.ph))}" alt="" loading="lazy"></figure>`).join('');
+// ---------- STAGE: live 3D in a frame that grows, then flies into a seat ----------
+const fly = { view: null, visible: true, built: false };
+function buildFly() {
+  const v = venueById('nms');
+  const model = getModel(v, 'catwalk');
+  // a lower-tier seat with a clear line to the stage: no delay tower or sound desk in the way
+  const st = model.stage, fz = st.zBack + st.d * 0.4;
+  // check sight lines to five points across the stage, not just its centre
+  const clear = (p) => [-0.5, -0.25, 0, 0.25, 0.5].every((k) => model.obstacles.every((o) => {
+    if (o.type !== 'tower') return true;
+    const fx = st.w * k, dx = fx - p.x, dz = fz - p.z, L2 = dx * dx + dz * dz;
+    const t = Math.max(0, Math.min(1, ((o.x - p.x) * dx + (o.z - p.z) * dz) / L2));
+    return Math.hypot(p.x + dx * t - o.x, p.z + dz * t - o.z) > Math.max(o.w, o.d) / 2 + 1.5;
+  }));
+  let sec, row, seat;
+  const cands = model.sections.filter((s) => s.tierIdx === 0 && !s.closed && !s.sideStage && s.availability !== 'soldout').sort((a, b) => Math.abs(a.phi - 38) - Math.abs(b.phi - 38));
+  for (const c of cands) { const r = c.getRows()[9]; const st2 = r.seats[Math.floor(r.seats.length / 2)]; if (clear(st2)) { sec = c; row = r; seat = st2; break; } }
+  if (!sec) { sec = cands[0]; row = sec.getRows()[9]; seat = row.seats[Math.floor(row.seats.length / 2)]; }
+  const view = new SeatView($('#fly-canvas'), { interactive: false, background: '#07060c' });
+  view.showTitle = firstShow.artist;
+  view.load(model);
+  view.buildCrowd({ x: seat.x, y: seat.y, z: seat.z, seat }, { cap: finePointer ? 26000 : 11000 });
+  // desktop: the bowl sits to the right of the headline; phones: below it
+  const wide = innerWidth / innerHeight > 0.9, b = model.bounds;
+  view.prepareScrubDive({ x: seat.x, y: seat.y, z: seat.z }, seat, wide ? { zoom: 0.6 } : { zoom: 0.85 });
+  // the stadium starts dark: only your seat glows, until the intro wave lights every chair
+  view.revealOrigin.value.set(seat.x, seat.z);
+  view.reveal.value = motion ? 0 : 1e6;
+  view.houseMix = motion ? 0 : 1; view.houseTarget = motion ? 0.05 : 1;
+  let far = 0; for (const s2 of model.sections) if (s2.center) far = Math.max(far, Math.hypot(s2.center[0] - seat.x, s2.center[1] - seat.z));
+  fly.far = far + 60;
+  view.start();
+  fly.view = view; fly.built = true;
+  fly.label = `SEC ${sec.id} · ROW ${row.label} · SEAT ${seat.n}`;
+  fly.stats = viewStats(model, { x: seat.x, y: seat.y, z: seat.z });
 }
-// ---------- MASK: a follow spot over a real concert photo ----------
-// A 2D canvas laid over the hero photo: a dark veil with a soft hole that follows the cursor (it drifts
-// on its own on touch screens). Scrolling pushes into the photo, the house goes dark, then the step photos fade up.
-const mask = { cv: null, ctx: null, zq: 0, spot: { x: 0, y: 0, tx: 0, ty: 0, a: 0 }, L: null, done: false, raf: 0, user: false };
+
+
+// ---------- MASK: SEATIFY as a window onto the stadium, plus a follow spot ----------
+// A 2D canvas laid over the 3D canvas: a near-black veil dims the stadium, and the letters and the
+// spotlight are cut out of it so the stadium shows through at full brightness. Scroll zooms into the stem of the I.
+const mask = { cv: null, ctx: null, word: 'SEATIFY', zq: 0, rise: motion ? 0 : 1, spot: { x: 0, y: 0, tx: 0, ty: 0, a: 0 }, L: null, done: false, raf: 0, user: false };
 function layoutMask() {
   const cv = mask.cv; if (!cv) return;
   const W = innerWidth, H = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-  mask.L = { W, H, dpr, r: Math.max(W, H) * (W > H ? 0.26 : 0.42) };
-  if (!mask.spot.x) { mask.spot.x = mask.spot.tx = W * 0.5; mask.spot.y = mask.spot.ty = H * 0.3; }
+  const ctx = mask.ctx, F = 200;
+  ctx.font = `900 ${F}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+  const wide = W / H > 0.9, g = Math.max(16, W * 0.012);
+  // one line on wide screens; SEAT / IFY stacked like a poster on tall ones
+  const rows = wide ? ['SEATIFY'] : ['SEAT', 'IFY'];
+  const top = wide ? Math.max(84, H * 0.11) : H * 0.12, bottom = wide ? H - Math.max(190, H * 0.23) : H - Math.max(200, H * 0.26);
+  const gap = wide ? 0 : H * 0.015, rowH = ((bottom - top) - gap * (rows.length - 1)) / rows.length;
+  const track = F * 0.035, letters = [];
+  let ox = W / 2, oy = H / 2, k = 0;
+  rows.forEach((word, r) => {
+    const m = ctx.measureText(word);
+    const inkL = m.actualBoundingBoxLeft, inkW = inkL + m.actualBoundingBoxRight + track * (word.length - 1);
+    const inkH = m.actualBoundingBoxAscent + Math.max(0, m.actualBoundingBoxDescent);
+    const sx = (W - 2 * g) / inkW;
+    const sy = Math.max(sx * 0.9, Math.min(rowH / inkH, sx * 2.4));
+    const h = inkH * sy, y0 = top + r * (rowH + gap) + (rowH - h) / 2;
+    const base = y0 + m.actualBoundingBoxAscent * sy, x0 = g + inkL * sx;
+    for (let i = 0; i < word.length; i++) {
+      const x = x0 + (ctx.measureText(word.slice(0, i)).width + i * track) * sx;
+      letters.push({ ch: word[i], x, base, sx, sy, y0, h, k: k++ });
+      if (word[i] === 'I') { const mI = ctx.measureText('I'); ox = x + ((mI.actualBoundingBoxRight - mI.actualBoundingBoxLeft) / 2) * sx; oy = y0 + h / 2; }
+    }
+  });
+  mask.L = { W, H, dpr, F, letters, ox, oy, r: Math.max(W, H) * (wide ? 0.2 : 0.3) };
+  if (!mask.spot.x) { mask.spot.x = mask.spot.tx = W * 0.62; mask.spot.y = mask.spot.ty = H * 0.42; }
   drawMask();
 }
-const photoEl = () => (mask.ph ||= $('#hero-photo'));
 function drawMask() {
   const L = mask.L, ctx = mask.ctx; if (!L || !ctx) return;
-  const z = mask.zq, finished = z >= 1;
-  const ph = photoEl();
-  if (ph) { ph.style.transform = `scale(${(1.04 + z * 0.5).toFixed(4)})`; ph.style.opacity = (1 - clamp01((z - 0.2) / 0.42)).toFixed(3); }
-  if (finished !== mask.done) { mask.done = finished; mask.cv.style.visibility = finished ? 'hidden' : 'visible'; if (ph) ph.style.visibility = finished ? 'hidden' : 'visible'; }
+  const z = mask.zq;
+  const finished = z >= 1;
+  if (finished !== mask.done) { mask.done = finished; mask.cv.style.visibility = finished ? 'hidden' : 'visible'; }
   if (finished) return;
   const { W, H, dpr } = L;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
+  // the house: dim stadium, brightening as we go through the letter
+  const open = clamp01((z - 0.55) / 0.45), dim = 0.08 + 0.92 * open * open;
   ctx.clearRect(0, 0, W, H);
-  // the house goes to black between the hero photo and the step photos, then they fade up
-  const veil = z < 0.62 ? 0.74 + 0.26 * (z / 0.62) : 1 - (z - 0.62) / 0.38;
-  ctx.fillStyle = `rgba(5,5,5,${veil.toFixed(3)})`; ctx.fillRect(0, 0, W, H);
-  const sp = mask.spot, sa = sp.a * (1 - clamp01(z * 2.6));
+  ctx.fillStyle = `rgba(5,5,5,${(1 - dim).toFixed(3)})`; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'destination-out';
+  // follow spot
+  const sp = mask.spot, sa = sp.a * (1 - clamp01(z * 4));
   if (sa > 0.01) {
-    ctx.globalCompositeOperation = 'destination-out';
     const gr = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, L.r);
-    gr.addColorStop(0, `rgba(0,0,0,${sa})`); gr.addColorStop(0.45, `rgba(0,0,0,${0.75 * sa})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    gr.addColorStop(0, `rgba(255,255,255,${0.95 * sa})`); gr.addColorStop(0.55, `rgba(255,255,255,${0.55 * sa})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
-    // a warm rim on the beam, like a gel on a follow spot
-    ctx.globalCompositeOperation = 'source-over';
-    const rim = ctx.createRadialGradient(sp.x, sp.y, L.r * 0.55, sp.x, sp.y, L.r);
-    rim.addColorStop(0, 'rgba(255,75,31,0)'); rim.addColorStop(0.7, `rgba(255,75,31,${0.12 * sa})`); rim.addColorStop(1, 'rgba(255,75,31,0)');
-    ctx.fillStyle = rim; ctx.fillRect(0, 0, W, H);
   }
+  // the word, zoomed about the stem of the I; letters rise one by one out of their own row
+  const zoom = Math.pow(110, z * z), stroke = 1 - clamp01(z * 3);
+  ctx.save();
+  ctx.translate(L.ox, L.oy); ctx.scale(zoom, zoom); ctx.translate(-L.ox, -L.oy);
+  ctx.fillStyle = '#fff'; ctx.lineJoin = 'round';
+  ctx.font = `900 ${L.F}px "Big Shoulders Display", "Arial Narrow", sans-serif`;
+  for (const lt of L.letters) {
+    const kk = clamp01(mask.rise * 1.7 - lt.k * 0.1), e = 1 - Math.pow(1 - kk, 4);
+    if (e <= 0) continue;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(lt.x - 40, lt.y0 - 2, W, lt.h + 4); ctx.clip();
+    ctx.translate(lt.x, lt.base + (1 - e) * lt.h * 1.04);
+    ctx.scale(lt.sx, lt.sy);
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillText(lt.ch, 0, 0);
+    // a thin flame tube round each letter, so the word reads even over the dark pitch
+    if (stroke > 0.01) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = `rgba(255,75,31,${(0.9 * stroke).toFixed(3)})`; ctx.lineWidth = 1.6 / lt.sx;
+      ctx.strokeText(lt.ch, 0, 0);
+    }
+    ctx.restore();
+  }
+  ctx.restore();
 }
 function setupMask(pin) {
   mask.cv = $('#mask-canvas'); mask.ctx = mask.cv.getContext('2d');
   const go = () => layoutMask();
-  go();
+  if (document.fonts?.load) document.fonts.load('900 200px "Big Shoulders Display"').then(go, go); else go();
   addEventListener('resize', () => layoutMask());
   pin.addEventListener('pointermove', (e) => { if (e.pointerType !== 'mouse') return; mask.user = true; mask.spot.tx = e.clientX; mask.spot.ty = e.clientY; });
   // the spot drifts on its own until a mouse takes it; it eases toward its target every frame
@@ -144,7 +209,7 @@ function setupMask(pin) {
     mask.raf = requestAnimationFrame(loop);
     if (!mask.L || mask.done || !fly.visible || document.documentElement.classList.contains('layer-open')) return;
     const L = mask.L, sp = mask.spot, t = (now - t0) / 1000;
-    if (!mask.user) { sp.tx = L.W * (0.5 + 0.28 * Math.sin(t * 0.45)); sp.ty = L.H * (0.34 + 0.14 * Math.sin(t * 0.83 + 1)); }
+    if (!mask.user) { sp.tx = L.W * (0.55 + 0.3 * Math.sin(t * 0.45)); sp.ty = L.H * (0.45 + 0.16 * Math.sin(t * 0.83 + 1)); }
     sp.x += (sp.tx - sp.x) * 0.09; sp.y += (sp.ty - sp.y) * 0.09;
     drawMask();
   };
@@ -153,51 +218,64 @@ function setupMask(pin) {
 
 function setupStage() {
   const pin = $('.stage-pin');
-  buildSteps();
-  const steps = $$('.step'), shots = $$('#step-photos .sp'); const bar = $('#fly-bar');
-  const hudVenue = $('#hud-venue'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
+  const steps = $$('.step'); const bar = $('#fly-bar');
+  const hudAlt = $('#hud-alt'), hudSeat = $('#hud-seat'), hudCount = $('#hud-count');
   let last = -2;
   const setStep = (i) => {
     if (i === last) return; last = i;
     steps.forEach((el, k) => el.classList.toggle('on', k === i));
     if (i >= 0) {
-      const s = STEP_SHOTS[i];
       hudCount.textContent = `0${i + 1} / 03`;
-      hudVenue.textContent = venueById(s.id).name;
-      hudSeat.textContent = `${venueById(s.id).city.split(' (')[0]} · Show night in 3D`;
       if (motion) gsap.fromTo(steps[i].children, { yPercent: 60, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.8, stagger: 0.07, ease: 'expo.out', overwrite: true });
     }
   };
   const update = (p) => {
     mask.zq = clamp01(p / 0.2); drawMask();
     const q = clamp01((p - 0.19) / 0.78);
-    // each photo holds for a third of the run, cross-fading into the next while it slowly pushes in
-    shots.forEach((el, k) => {
-      const c = (k + 0.5) / 3, d = Math.abs(q - c) * 3;
-      el.style.opacity = clamp01(1.6 - d * 1.4).toFixed(3);
-      el.style.transform = `scale(${(1.06 + (q - c) * 0.35).toFixed(4)})`;
-    });
+    fly.q = q;
+    fly.view?.setDiveP(Math.min(1, q * 1.08));
+    if (q > 0.01 && fly.view) { fly.view.setHover(null); $('#hero-tip').hidden = true; }
     const sv = clamp01((p - 0.2) / 0.06);
     pin.style.setProperty('--steps', sv.toFixed(3));
-    setStep(sv < 0.5 ? -1 : q < 0.34 ? 0 : q < 0.67 ? 1 : 2);
+    setStep(sv < 0.5 ? -1 : q < 0.36 ? 0 : q < 0.72 ? 1 : 2);
     bar.style.transform = `scaleX(${q})`;
+    if (fly.view) hudAlt.textContent = `ALT ${Math.max(0, Math.round(fly.view.camera.position.y))} M`;
+    hudSeat.textContent = q > 0.55 && fly.label ? fly.label + (q > 0.8 ? ` · ${Math.round(fly.stats.dist)} M TO STAGE` : '') : 'SEC — · ROW — · SEAT —';
   };
+  const tip = $('#hero-tip');
+  let heroItem = null;
+  pin.addEventListener('pointermove', (e) => {
+    const v = fly.view;
+    if (!v || (fly.q || 0) > 0.01 || !finePointer || fly.waking || e.target.closest('button, a, .hero-row')) { if (heroItem) { heroItem = null; v?.setHover(null); tip.hidden = true; } return; }
+    const it = v.pickAt(e.clientX, e.clientY);
+    if (it !== heroItem) { heroItem = it; v.setHover(it); }
+    if (!it) { tip.hidden = true; return; }
+    const m = v.model; let free = 0;
+    if (it.kind !== 'zone') for (const r of it.getRows()) for (const st of r.seats) if (!st.sold) free++;
+    tip.innerHTML = `<b>${esc(it.kind === 'zone' ? it.label : 'Sec ' + it.id)}</b><span>${esc(it.kind === 'zone' ? 'Standing' : CATS[it.cat].label + ' · ' + it.tier)} · ${fmtINR(priceOf(m.venue, it.cat))}</span><em>${it.kind === 'zone' ? 'Click to stand here' : free ? free.toLocaleString('en-IN') + ' free · click to fly in' : 'Sold out'}</em>`;
+    tip.hidden = false; tip.style.left = Math.min(innerWidth - 220, e.clientX + 18) + 'px'; tip.style.top = Math.max(70, e.clientY - 20) + 'px';
+  });
+  pin.addEventListener('pointerleave', () => { heroItem = null; fly.view?.setHover(null); tip.hidden = true; });
+  pin.addEventListener('click', (e) => {
+    if (!heroItem || e.target.closest('button, a')) return;
+    const it = heroItem; heroItem = null; tip.hidden = true; fly.view?.setHover(null);
+    openFirst(); window.__seatify?.pick3d(it);
+  });
   setupMask(pin);
-  if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); shots.forEach((el) => (el.style.opacity = 1)); return; }
+  if (!motion) { steps.forEach((s) => s.classList.add('on')); pin.style.setProperty('--steps', 1); return; }
   const tl = gsap.timeline({
     defaults: { ease: 'none' },
     scrollTrigger: { trigger: '#how', start: 'top top', end: () => '+=' + innerHeight * 3.4, pin, scrub: 0.6, invalidateOnRefresh: true, onUpdate: (self) => update(self.progress) },
   });
   tl.to('.hero-top', { y: -40, opacity: 0, duration: 0.06 }, 0)
-    .to('.hero-title .ht-line:nth-child(1)', { xPercent: -30, opacity: 0, duration: 0.12 }, 0.01)
-    .to('.hero-title .ht-line:nth-child(2)', { xPercent: 30, opacity: 0, duration: 0.12 }, 0.01)
-    .to('#next-ticket', { y: -innerHeight * 0.5, rotate: 14, opacity: 0, duration: 0.12 }, 0)
-    .to('.hero-credit', { opacity: 0, duration: 0.04 }, 0)
     .to('.hero-row', { y: 60, opacity: 0, duration: 0.07 }, 0)
     .to('.scroll-cue', { opacity: 0, duration: 0.04 }, 0)
     .to({}, { duration: 0.93 });
   update(0);
-  ScrollTrigger.create({ trigger: '#how', start: 'top bottom', end: 'bottom top', onToggle: (self) => { fly.visible = self.isActive; } });
+  ScrollTrigger.create({
+    trigger: '#how', start: 'top bottom', end: 'bottom top',
+    onToggle: (self) => { fly.visible = self.isActive; if (self.isActive && !document.documentElement.classList.contains('layer-open')) fly.view?.start(); else fly.view?.stop(); },
+  });
 }
 
 // ---------- marquees: speed and skew follow scroll velocity ----------
@@ -233,7 +311,7 @@ function stickerSpin(boost) { stickerA = (stickerA + 0.35 + boost * 0.6) % 360; 
 function setupSwarm() {
   const sw = $('#swarm');
   const lefts = [4, 68, 30, 82, 12, 52, 74, 22, 60, 38];
-  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%">${venueImg(s.venue)}<span>${esc(s.title)}</span></div>`).join('');
+  sw.innerHTML = SHOWS.map((s, i) => `<div class="sw-card" style="left:${lefts[i % lefts.length]}%"><img src="${img(s.venue)}" alt="" loading="lazy" width="1600" height="1000"><span>${esc(s.title)}</span></div>`).join('');
   if (!motion) return;
   const cards = $$('.sw-card', sw);
   const tl = gsap.timeline({ defaults: { ease: 'none' }, scrollTrigger: { trigger: '.swarm-sec', start: 'top top', end: () => '+=' + innerHeight * 2.2, pin: '.swarm-pin', scrub: 0.8, invalidateOnRefresh: true } });
@@ -257,7 +335,7 @@ function setupShows() {
     const tag = i === 0 ? 'Fast selling' : i % 4 === 1 ? 'Few left' : i % 3 === 0 ? 'New' : '';
     return `<button class="show-card tilt" type="button" data-cursor="Pick seats" data-i="${i}">
       <span class="sc-top">
-        <span class="sc-img">${venueImg(s.venue, '', `Photo of ${v.name}`)}</span>
+        <span class="sc-img"><img src="${img(s.venue)}" alt="Seatify render of ${esc(v.name)} from the stands" loading="lazy" width="1600" height="1000" draggable="false"></span>
         ${tag ? `<span class="sc-tag mono">${tag}</span>` : ''}
         <span class="sc-n">${String(i + 1).padStart(2, '0')}</span>
         <span class="sc-meta mono">${esc(s.date)} · ${esc(s.time)} · ${esc(cityOf(v))}</span>
@@ -301,11 +379,11 @@ function setupShows() {
 
 // ---------- CUBE: seat views on a cube that grows and turns ----------
 function setupCube() {
-  const ids = ['nms', 'dyp', 'jln', 'vagator', 'saltlake', 'mahalaxmi'];
+  const ids = ['nms', 'dyp', 'jln', 'mahalaxmi', 'saltlake', 'nsci'];
   const picks = ids.map(venueById).filter(Boolean);
   while (picks.length < 6) picks.push(VENUES[picks.length]);
   const cube = $('#cube'), label = $('#cube-label');
-  cube.innerHTML = picks.map((v) => `<div class="cube-face">${venueImg(v.id, '', `Photo of ${v.name}`)}<span>${esc(v.name)}</span></div>`).join('');
+  cube.innerHTML = picks.map((v) => `<div class="cube-face"><img src="${img(v.id)}" alt="Seatify render of the view at ${esc(v.name)}" loading="lazy" width="1600" height="1000"><span>${esc(v.name)}</span></div>`).join('');
   const names = picks.map((v) => `${v.name} · ${cityOf(v)}`);
   label.textContent = names[0];
   if (!motion) { cube.style.transform = 'rotateX(-14deg) rotateY(24deg)'; return; }
@@ -389,7 +467,7 @@ function renderVenues() {
   $('#v-index').innerHTML = list.map((v) => `
     <li><button type="button" class="v-row" data-id="${v.id}" data-cursor="Open map">
       <span class="v-n mono">${String(VENUES.indexOf(v) + 1).padStart(2, '0')}</span>
-      <span class="v-thumb">${thumbOf(v.id) ? `<img src="${esc(thumbOf(v.id))}" alt="" loading="lazy">` : '<span class="no-photo"></span>'}</span>
+      <span class="v-thumb"><img src="${img(v.id)}" alt="" loading="lazy" width="1600" height="1000"></span>
       <span class="v-name" aria-label="${esc(v.name)}">${flaps(v.name)}</span>
       <span class="v-city mono">${esc(v.city)}</span>
       <span class="v-kind mono">${v.kind === 'ground' ? 'Open ground' : v.kind === 'arena' ? 'Indoor arena' : 'Stadium'}</span>
@@ -415,8 +493,7 @@ function flip(row) {
     const final = t.dataset.c || (t.dataset.c = t.textContent);
     let n = 3 + i;
     const step = () => {
-      if (n-- <= 0) { t.textContent = final; t.classList.remove('flip'); if (--left === 0) row._flipping = false; return; }
-      t.classList.add('flip');
+      if (n-- <= 0) { t.textContent = final; if (--left === 0) row._flipping = false; return; }
       t.textContent = FLAP[(Math.random() * FLAP.length) | 0];
       setTimeout(step, 38);
     };
@@ -430,7 +507,7 @@ function setupVenuePreview() {
   let lastX = 0;
   $('#v-index').addEventListener('pointermove', (e) => {
     const row = e.target.closest('.v-row'); if (!row) return;
-    const src = bigOf(row.dataset.id); if (!src) { pv.classList.remove('on'); return; } if (!pimg.src.endsWith(src)) pimg.src = src;
+    const src = img(row.dataset.id); if (!pimg.src.endsWith(src)) pimg.src = src;
     xTo(e.clientX); yTo(e.clientY);
     gsap.to(pv, { rotate: Math.max(-8, Math.min(8, (e.clientX - lastX) * 0.4)), duration: 0.4 }); lastX = e.clientX;
     pv.classList.add('on');
@@ -438,16 +515,20 @@ function setupVenuePreview() {
   $('#v-index').addEventListener('pointerleave', () => pv.classList.remove('on'));
 }
 
-// ---------- FOOTER: a ticket rises over the crowd; the stub tears off as you reach the end ----------
+// ---------- FOOTER: fog starts when you get close, wordmark fills from the bottom ----------
+let vanta = null;
+function startVanta() {
+  if (vanta || reduce || !window.VANTA?.FOG) return;
+  try {
+    vanta = VANTA.FOG({ el: '#foot-fog', THREE, mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200, minWidth: 200,
+      highlightColor: 0xff8a3d, midtoneColor: 0xff4b1f, lowlightColor: 0x2a0a02, baseColor: 0x060606, blurFactor: 0.62, speed: 1.1, zoom: 0.8 });
+  } catch (err) { console.warn('Vanta fog could not start', err); }
+}
 function setupFooter() {
-  const seat = $('#ft-seat');
-  const seats = ['SEC 113 · ROW K · SEAT 15', 'FAN PIT · FRONT', 'SEC 204 · ROW C · SEAT 8', 'SEC 319 · ROW AK · SEAT 40', 'GOLD · SEC 105 · ROW F'];
-  let si = 0;
-  $('#ft-stub').addEventListener('pointerenter', () => { si = (si + 1) % seats.length; seat.textContent = seats[si]; });
-  if (!motion) return;
-  gsap.fromTo('.foot-photo img', { scale: 1.25, yPercent: -6 }, { scale: 1.02, yPercent: 0, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'bottom bottom', scrub: true } });
-  gsap.fromTo('#foot-ticket', { y: 160, rotate: -3 }, { y: 0, rotate: 0, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'top 25%', scrub: true } });
-  gsap.fromTo('#ft-stub', { rotate: 0, x: 0, y: 0 }, { rotate: 5, x: 16, y: 20, ease: 'power1.in', scrollTrigger: { trigger: '.foot', start: 'center bottom', end: 'bottom bottom', scrub: true } });
+  if (!motion) { startVanta(); return; }
+  ScrollTrigger.create({ trigger: '.foot', start: 'top 150%', onEnter: startVanta });
+  gsap.fromTo('#fm-fill', { clipPath: 'inset(100% 0% 0% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top 60%', end: 'bottom bottom', scrub: true } });
+  gsap.from('.foot-mark', { yPercent: 40, ease: 'none', scrollTrigger: { trigger: '.foot', start: 'top bottom', end: 'bottom bottom', scrub: true } });
 }
 
 // ---------- pointer: card tilt + glare, magnetic buttons, cursor ----------
@@ -502,14 +583,20 @@ function intro() {
   if (!motion) { $('#curtain')?.remove(); mask.spot.a = 1; drawMask(); return; }
   const tl = gsap.timeline({ defaults: { ease: 'expo.out' } });
   tl.to('#curtain', { clipPath: 'inset(0% 0% 100% 0%)', duration: 1.0, ease: 'expo.inOut', onComplete: () => $('#curtain')?.remove() }, 0.1)
-    .fromTo('#hero-photo', { scale: 1.25, filter: 'brightness(0)' }, { scale: 1.04, filter: 'brightness(1)', duration: 2.4, ease: 'expo.out', clearProps: 'filter' }, 0.3)
-    .from(heroChars, { yPercent: 115, duration: 1.2, stagger: 0.025 }, 0.7)
-    .from('#next-ticket', { y: -160, rotate: -24, opacity: 0, duration: 1.4, ease: 'back.out(1.4)' }, 1.3)
-    .to(mask.spot, { a: 1, duration: 1.6, ease: 'power2.inOut' }, 1.1)
+    .to(mask, { rise: 1, duration: 1.9, ease: 'none', onUpdate: drawMask }, 0.45)
+    .to(mask.spot, { a: 1, duration: 1.6, ease: 'power2.inOut' }, 1.6)
     .from('.nav > *', { y: -20, opacity: 0, duration: 0.8, stagger: 0.06 }, 0.9)
     .from(['.hero-title', '.hero-lede', '.hero-ctas > *'], { y: 30, opacity: 0, duration: 1, stagger: 0.08 }, 1.3)
     .from('.hero-top > *', { clipPath: 'inset(0% 100% 0% 0%)', duration: 1.2, ease: 'power3.inOut' }, 1.1)
     .from('#hero-sticker', { scale: 0, rotate: -180, duration: 1.4 }, 1.6);
+  const v = fly.view;
+  if (v) {
+    // one seat glows in the dark, then a wave of light runs out from it across every chair
+    fly.waking = true;
+    tl.add(() => { v.houseTarget = 1; }, 1.5)
+      .to(v.reveal, { value: fly.far || 400, duration: 3.2, ease: 'power2.in' }, 1.1)
+      .add(() => { v.reveal.value = 1e6; fly.waking = false; }, 4.4);
+  }
 }
 
 function preload(work) {
@@ -541,4 +628,4 @@ setupVenuePreview();
 setupPointerFx();
 setupReveals();
 setupFooter();
-preload(() => { if (hasGsap) ScrollTrigger.refresh(); });
+preload(() => { buildFly(); if (hasGsap) ScrollTrigger.refresh(); });
