@@ -2,6 +2,7 @@ import { VENUES, SHOWS, CATS, LAYOUTS } from './data/venues.js';
 import { buildModel, priceOf, fmtINR, viewStats, warningsFor, zoneSpot } from './model.js';
 import { SeatMap, miniMap } from './map.js';
 import { SeatView } from './scene3d.js';
+import { mapsLinks } from './data/places.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -323,6 +324,61 @@ function renderViewSheet() {
   $('#view-buy').textContent = `Buy · ${fmtINR(priceOf(m.venue, p.cat))}`;
   $('#view-crowd').textContent = `${view.crowdCount.toLocaleString('en-IN')} fans drawn around you`;
   miniMap($('#view-minimap'), m, p.point);
+  renderPlace(m);
+}
+
+// The real venue on Google Maps: satellite, Google Earth 3D and Street View, all keyless.
+function renderPlace(m) {
+  const box = $('#view-place'); const L = mapsLinks(m.venue.id);
+  if (!box) return;
+  if (!L) { box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = `<div class="real-head"><b>The real ${esc(m.venue.name)}</b><span>Google Maps</span></div>
+    <button type="button" class="place-card" id="place-open" aria-label="Open the satellite view of ${esc(m.venue.name)}">
+      <span class="place-ic" aria-hidden="true">◉</span><span><b>See it from above</b><em>Satellite, 3D and Street View of the real venue</em></span><i aria-hidden="true">↗</i>
+    </button>`;
+  $('#place-open').onclick = () => openPlace(m.venue);
+}
+
+function openPlace(venue) {
+  const L = mapsLinks(venue.id); if (!L) return;
+  let d = $('#place-dlg');
+  if (!d) { d = h('div', 'place-dlg'); d.id = 'place-dlg'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', 'place-title'); document.body.appendChild(d); }
+  const kind = { stadium: 'Stadium', arena: 'Indoor arena', ground: 'Open-air ground' }[venue.kind] || 'Venue';
+  const tile = (href, ic, t, sub) => `<a class="pl-tile" href="${href}" target="_blank" rel="noopener"><span class="pl-ic" aria-hidden="true">${ic}</span><b>${t}</b><em>${sub}</em><i aria-hidden="true">↗</i></a>`;
+  d.hidden = false;
+  d.innerHTML = `<div class="place-box">
+      <header class="place-top">
+        <div><p class="kicker mono">Real venue · ${esc(kind)}</p><h3 id="place-title">${esc(venue.name)}</h3><div class="meta">${esc(venue.city)} · ${esc(venue.capacity)}</div></div>
+        <button class="icon-btn" type="button" id="place-x" aria-label="Close map">✕</button>
+      </header>
+      <div class="place-main">
+        <div class="place-frame">
+          <iframe id="place-iframe" title="Google Maps view of ${esc(venue.name)}" src="${L.embed(true)}" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+          <div class="segs place-segs" role="group" aria-label="Map type"><button type="button" class="seg on" data-sat="1" aria-pressed="true">Satellite</button><button type="button" class="seg" data-sat="0" aria-pressed="false">Map</button></div>
+          <span class="place-pin mono">${L.exact ? '● Pin on the venue' : '● Area pin · enclosure moves per show'}</span>
+        </div>
+        <aside class="place-side">
+          <figure class="pl-ours"><img src="assets/venues/${esc(venue.id)}.jpg" alt="" loading="lazy"><figcaption><b>Our 3D model</b><span>Compare it with the satellite view</span></figcaption></figure>
+          <div class="pl-tiles">
+            ${tile(L.earth, '◍', 'Google Earth', 'Fly round it in 3D')}
+            ${L.street ? tile(L.street, '◐', 'Street View', 'Walk up to the gates') : ''}
+            ${tile(L.directions, '➚', 'Directions', 'Plan your way in')}
+            ${tile(L.maps, '◉', 'Google Maps', 'Reviews, photos, gates')}
+          </div>
+          <p class="fine">Free Google Maps, no sign-in. ${esc(venue.notes)}</p>
+        </aside>
+      </div>
+    </div>`;
+  const close = () => { d.hidden = true; d.innerHTML = ''; window.removeEventListener('keydown', key, true); };
+  const key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); close(); } };
+  window.addEventListener('keydown', key, true);
+  $('#place-x').onclick = close; d.onclick = (e) => { if (e.target === d) close(); };
+  for (const b of d.querySelectorAll('.place-segs .seg')) b.onclick = () => {
+    for (const o of d.querySelectorAll('.place-segs .seg')) { const on = o === b; o.classList.toggle('on', on); o.setAttribute('aria-pressed', String(on)); }
+    $('#place-iframe').src = L.embed(b.dataset.sat === '1');
+  };
+  $('#place-x').focus();
 }
 
 // ---------------- checkout ----------------
@@ -386,6 +442,8 @@ $('#select-view').onclick = openView;
 $('#view-back').onclick = () => (scr.classList.contains('is-map') ? show('screen-home') : backToStadium());
 $('#view-change').onclick = backToStadium;
 $('#m3-plan').onclick = openPlan;
+$('#m3-place').onclick = () => state.model && openPlace(state.model.venue);
+$('#map-place').onclick = () => state.model && openPlace(state.model.venue);
 $('#seat-prev').onclick = () => stepSeat(-1);
 $('#seat-next').onclick = () => stepSeat(1);
 view.onHover = (it, x, y) => showTip(it, x, y);
